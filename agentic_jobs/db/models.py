@@ -71,6 +71,26 @@ class JobSource(Base):
     hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
 
 
+class FrontierOrg(Base):
+    __tablename__ = "frontier_orgs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    org_slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    discovered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+    last_crawled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    muted_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("source", "org_slug", name="uq_frontier_org_source_slug"),
+    )
+
+
 class TrustEvent(Base):
     __tablename__ = "trust_events"
 

@@ -1,0 +1,17 @@
+[
+  {
+    "company": "TestCorp",
+    "title": "Platform Engineer - New Grad",
+    "locations": [
+      "Remote - US",
+      "New York, NY"
+    ],
+    "url": "https://boards.greenhouse.io/testcorp/jobs/54321",
+    "description": "Join the TestCorp platform team to build reliable systems.",
+    "qualifications": [
+      "BS in Computer Science or related field",
+      "Experience with Python or Go"
+    ],
+    "date_posted": "2099-01-01"
+  }
+]

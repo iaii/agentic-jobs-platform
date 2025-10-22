@@ -1,0 +1,22 @@
+{
+  "companies": [
+    {
+      "company": "Example Labs",
+      "roles": [
+        {
+          "title": "Software Engineer 2026",
+          "locations": [
+            "Seattle, WA"
+          ],
+          "application_link": "https://example.com/jobs/67890",
+          "requirements": [
+            "Strong fundamentals in algorithms and data structures",
+            "Interest in distributed systems"
+          ],
+          "about": "Work on next generation platforms.",
+          "date_posted": "2099-01-02"
+        }
+      ]
+    }
+  ]
+}
