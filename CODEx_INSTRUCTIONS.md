@@ -20,7 +20,7 @@
 
 ### Schedule
 
-* **Every 3 hours** between **07:00 and 23:00 PT** (inclusive) for discovery + digest posts.
+* **Every 3 hours** between **06:00 and 23:00 PT** (inclusive) for discovery + digest posts.
 
 ### Target roles (filters)
 
@@ -301,7 +301,7 @@ agentic_jobs/
 
 **Codex — Objectives**
 
-1. Implement the **3-hour scheduler** (07:00–23:00 PT).
+1. Implement the **3-hour scheduler** (06:00–23:00 PT).
 2. After discovery, **rank** the newly ingested jobs with the deterministic rules (see MVPart 4 for weights; implement here).
 3. Post a **digest** to `#jobs-feed`: compact rows (Title · Company · Location · **Score chip**), actions: **Open JD**, **Save to Tracker**.
 4. For **unknown domains**, post a **Needs-Review** card with Approve/Reject; approving writes to `whitelist`.
@@ -461,7 +461,7 @@ agentic_jobs/
 
 **Codex — Objectives**
 
-1. Implement scheduler windows (07:00–23:00 PT) with **3-hour cadence**; idempotent runs (don’t repost the same jobs).
+1. Implement scheduler windows (06:00–23:00 PT) with **3-hour cadence**; idempotent runs (don’t repost the same jobs).
 2. Logging: structured JSON; redact PII; include `app_id` / `job_id` in log contexts.
 3. Metrics counters (even simple logs): jobs_seen, jobs_new, digest_rows_posted, domains_review_posted, applications_created, drafts_generated.
 

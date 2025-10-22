@@ -1,0 +1,22 @@
+{
+  "meta": {
+    "title": "TestOrg - Careers"
+  },
+  "departments": [
+    {
+      "name": "Engineering",
+      "jobs": [
+        {
+          "id": 12345,
+          "title": "Software Engineer",
+          "absolute_url": "https://boards.greenhouse.io/testorg/jobs/12345",
+          "location": {
+            "name": "Remote - US"
+          },
+          "updated_at": "2024-09-15T12:00:00Z",
+          "internal_job_id": "12345"
+        }
+      ]
+    }
+  ]
+}
