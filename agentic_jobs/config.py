@@ -15,6 +15,27 @@ class Settings(BaseSettings):
     )
     environment: str = Field("development", alias="ENVIRONMENT")
     debug: bool = Field(False, alias="DEBUG")
+    discovery_base_url: str = Field(
+        "https://boards.greenhouse.io", alias="DISCOVERY_BASE_URL"
+    )
+    discovery_sitemap_url: str = Field(
+        "https://boards.greenhouse.io/sitemap.xml", alias="DISCOVERY_SITEMAP_URL"
+    )
+    discovery_interval_hours: int = Field(3, alias="DISCOVERY_INTERVAL_HOURS")
+    max_orgs_per_run: int = Field(100, alias="MAX_ORGS_PER_RUN")
+    requests_per_minute: int = Field(60, alias="REQUESTS_PER_MINUTE")
+    request_timeout_seconds: int = Field(5, alias="REQUEST_TIMEOUT_SECONDS")
+    allowed_domains: str = Field("boards.greenhouse.io", alias="ALLOWED_DOMAINS")
+    enable_greenhouse: bool = Field(True, alias="ENABLE_GREENHOUSE")
+    github_max_age_days: int = Field(3, alias="GITHUB_MAX_AGE_DAYS")
+    simplify_positions_urls: str = Field(
+        "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/.github/scripts/listings.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/src/data/positions.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json",
+        alias="SIMPLIFY_POSITIONS_URLS",
+    )
+    new_grad_2026_urls: str = Field(
+        "https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/.github/scripts/listings.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/src/data/positions.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/data/positions.json",
+        alias="NEW_GRAD_2026_URLS",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -29,6 +50,32 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         return self.environment.lower() == "development"
+
+    @property
+    def allowed_domains_list(self) -> list[str]:
+        return [domain.strip() for domain in self.allowed_domains.split(",") if domain.strip()]
+
+    @property
+    def simplify_positions_url_list(self) -> list[str]:
+        return [
+            url.strip()
+            for url in self.simplify_positions_urls.split(",")
+            if url.strip()
+        ]
+
+    @property
+    def new_grad_positions_url_list(self) -> list[str]:
+        return [
+            url.strip()
+            for url in self.new_grad_2026_urls.split(",")
+            if url.strip()
+        ]
+
+    @property
+    def github_max_age_delta(self):
+        from datetime import timedelta
+
+        return timedelta(days=self.github_max_age_days)
 
 
 @lru_cache()
