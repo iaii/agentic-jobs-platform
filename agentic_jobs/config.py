@@ -36,6 +36,14 @@ class Settings(BaseSettings):
         "https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/.github/scripts/listings.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/src/data/positions.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/data/positions.json",
         alias="NEW_GRAD_2026_URLS",
     )
+    slack_bot_token: str | None = Field(None, alias="SLACK_BOT_TOKEN")
+    slack_app_level_token: str | None = Field(None, alias="SLACK_APP_LEVEL_TOKEN")
+    slack_signing_secret: str | None = Field(None, alias="SLACK_SIGNING_SECRET")
+    slack_jobs_feed_channel: str | None = Field(None, alias="SLACK_JOBS_FEED_CHANNEL")
+    slack_jobs_drafts_channel: str | None = Field(None, alias="SLACK_JOBS_DRAFTS_CHANNEL")
+    digest_batch_size: int = Field(20, alias="DIGEST_BATCH_SIZE")
+    scheduler_window_start_hour_pt: int = Field(7, alias="SCHEDULER_WINDOW_START_HOUR_PT")
+    scheduler_window_end_hour_pt: int = Field(23, alias="SCHEDULER_WINDOW_END_HOUR_PT")
 
     model_config = SettingsConfigDict(
         env_file=".env",

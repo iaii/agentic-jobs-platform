@@ -38,3 +38,9 @@ class ArtifactType(StrEnum):
     COVER_LETTER_VERSION = "cover_letter_vN"
     AUTOFILL_SUMMARY = "autofill_summary"
     CONFIRMATION = "confirmation"
+
+
+class DomainReviewStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    MUTED = "muted"

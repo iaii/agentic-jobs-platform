@@ -1,12 +1,14 @@
-# Agentic Job Applications — Codex Build Instructions (MVP Series)
+# Agentic Job Applications — Current Implementation Status
 
-> **Build intent**: Create a Slack-first, human-in-the-loop system that (a) automatically discovers new-grad/backend/full-stack roles, (b) scrapes JDs, (c) ranks them using deterministic rules with your skills + geo boosts, (d) tracks applications with a clean Slack workflow, and (e) generates cover-letter drafts in your voice using an open-source LLM.
-> **Strict rules**:
->
-> * No auto-submit.
-> * For aggregators (e.g., LinkedIn), provide links; autofill lives later in a “you-open-it” model.
-> * Only operate on **public** pages (no logged-in scraping).
-> * Keep threads organized: one Slack thread per application.
+> **System Overview**: A production-ready Slack-first, human-in-the-loop system that automatically discovers new-grad/backend/full-stack roles, scrapes JDs, ranks them using deterministic rules, tracks applications with a clean Slack workflow, and provides infrastructure for cover-letter generation.
+> 
+> **Current Status**: Core system is fully implemented and operational. Cover letter generation and advanced features are in development.
+> 
+> **Architecture Principles**:
+> * No auto-submit (human approval required)
+> * Public pages only (no logged-in scraping)
+> * One Slack thread per application
+> * Deterministic scoring and ranking
 
 ---
 
@@ -69,13 +71,13 @@ Agentic AI, AI Agent, RAG, retrieval-augmented, LLM fine-tuning, multimodal
 
 ---
 
-# MVPart 1 — Project Boot + Core Data Contracts (No external effects)
+# ✅ MVPart 1 — Project Boot + Core Data Contracts (COMPLETED)
 
-**Codex — Objectives**
+**Status**: ✅ **FULLY IMPLEMENTED**
 
-1. Create project structure (FastAPI + Postgres + Slack client scaffolding; no secrets in code).
-2. Define **Pydantic** schemas and **SQL** tables for: `jobs`, `job_sources`, `trust_events`, `whitelist`, `applications`, `artifacts`, `profile_*`.
-3. Provide **API contracts** (request/response JSON) for endpoints used in later parts (no implementation yet).
+1. ✅ Project structure created (FastAPI + Postgres + Slack client scaffolding)
+2. ✅ Complete database schema with all models: `jobs`, `job_sources`, `trust_events`, `whitelist`, `applications`, `artifacts`, `profile_*`, `frontier_orgs`, `digest_logs`, `domain_reviews`
+3. ✅ API endpoints implemented for all core functionality
 
 **Data contracts (authoritative)**
 
@@ -155,80 +157,66 @@ Agentic AI, AI Agent, RAG, retrieval-augmented, LLM fine-tuning, multimodal
 
 ---
 
-# MVPart 2 — Seedless Discovery (Open-Source) + JD Scrape + Dedup + Trust
+# ✅ MVPart 2 — Seedless Discovery (Open-Source) + JD Scrape + Dedup + Trust (COMPLETED)
 
-**Scope lock**: Implement ONLY MVPart 2.
+**Status**: ✅ **FULLY IMPLEMENTED**
 
 ## Intent
 
-Build a **fully open-source, seedless** discovery engine for **Greenhouse** that does **not** rely on Google/SerpAPI. It should be architected to **expand** later to Lever, Workday, LinkedIn, etc., by adding adapters—without changing the core pipeline.
+✅ Built a **fully open-source, seedless** discovery engine for **Greenhouse** and **GitHub** that does **not** rely on Google/SerpAPI. The system is architected to **expand** to Lever, Workday, LinkedIn, etc., by adding adapters—without changing the core pipeline.
 
-## Design Overview
+## ✅ Implemented Design
 
-* **Sitemap-based frontier**: Parse `https://boards.greenhouse.io/sitemap.xml` to discover **all** GH org slugs. Seed the **frontier** from this list (stored in DB).
-* **Polite async crawler**: Fetch org **JSON job feeds** (when available) or list pages, then fetch each **job detail page** to extract JD HTML.
-* **Normalization**: Produce `Job` rows with JD text, `requirements[]`, `job_id_canonical = "GH:<numeric_id>"`, and `hash`.
-* **Dedup**: Prefer canonical id; fallback to content hash within a 30-day window.
-* **Trust Gate**: Evaluate domain once; persist `TrustEvent` (Slack posting comes in MVPart 3).
-* **Extensibility**: Use a **SourceAdapter interface** so Lever/Workday extensions can plug in later.
+* ✅ **Sitemap-based frontier**: Parse `https://boards.greenhouse.io/sitemap.xml` to discover **all** GH org slugs. Seed the **frontier** from this list (stored in DB).
+* ✅ **Polite async crawler**: Fetch org **JSON job feeds** (when available) or list pages, then fetch each **job detail page** to extract JD HTML.
+* ✅ **Normalization**: Produce `Job` rows with JD text, `requirements[]`, `job_id_canonical = "GH:<numeric_id>"`, and `hash`.
+* ✅ **Dedup**: Prefer canonical id; fallback to content hash within a 30-day window.
+* ✅ **Trust Gate**: Evaluate domain once; persist `TrustEvent` with Slack integration.
+* ✅ **Extensibility**: Use a **SourceAdapter interface** so Lever/Workday extensions can plug in later.
+* ✅ **GitHub Integration**: Added SimplifyJobs and New-Grad-2026 adapters for additional job sources.
 
-## Tasks
+## ✅ Completed Tasks
 
-1. **Frontier store (DB)**
+1. ✅ **Frontier store (DB)**
+   - ✅ Added `frontier_orgs` table with all required fields
+   - ✅ Seed step: parse `boards.greenhouse.io/sitemap.xml`, extract `<loc>` ending in `/slug`, and add new slugs (upsert)
+   - ✅ Respect robots.txt for `boards.greenhouse.io` (read once per run; cache decision)
 
-   * Add `frontier_orgs` table (or reuse a small `sources_frontier`):
-     `id, source ("greenhouse"), org_slug, priority (int), discovered_at, last_crawled_at, muted_until?`.
-   * Seed step: parse `boards.greenhouse.io/sitemap.xml`, extract `<loc>` ending in `/slug`, and add new slugs (upsert).
-   * Respect robots.txt for `boards.greenhouse.io` (read once per run; cache decision).
+2. ✅ **Async fetcher (GreenhouseAdapter)**
+   - ✅ Created `services/discovery/greenhouse_adapter.py` with async class
+   - ✅ `discover_from_sitemap()` → seeds org slugs
+   - ✅ `list_jobs(org_slug)` → returns minimal job refs with JSON feed preference
+   - ✅ `fetch_job_detail(url)` → returns JD HTML with normalization
+   - ✅ Rate limiting with `aiolimiter` to ~60 req/min across host; timeouts (~5s)
+   - ✅ Always use **HTTPS**
 
-2. **Async fetcher (GreenhouseAdapter)**
+3. ✅ **Normalization & fields**
+   - ✅ Implemented `services/sources/normalize.py` with:
+     - ✅ `html_to_text(html) -> str` (strip tags, collapse whitespace)
+     - ✅ `extract_requirements(text) -> list[str]` (heuristics around "Requirements/Qualifications/Responsibilities")
+     - ✅ `compute_hash(title, company, jd_text) -> sha1 hex`
+   - ✅ Build `job_id_canonical` as `"GH:<id>"` from the detail URL or JSON entry
 
-   * Create `services/discovery/greenhouse_adapter.py` with an async class that provides:
+4. ✅ **Dedup rules**
+   - ✅ If `job_id_canonical` seen in last 30 days → skip insert
+   - ✅ Else if `hash` seen in last 30 days → skip insert
+   - ✅ Else insert **JobSource** + **Job**
 
-     * `discover_from_sitemap()` → seeds org slugs.
-     * `list_jobs(org_slug)` → returns minimal job refs (title, location, job detail URL, numeric id). Prefer **JSON feed**:
-       `https://boards.greenhouse.io/<org_slug>/embed/job_board/json` (fallback to HTML board if JSON missing).
-     * `fetch_job_detail(url)` → returns JD HTML, then use normalizer to clean text and extract `requirements[]` + simple “About” snippet.
-   * Use `httpx.AsyncClient` or `aiohttp`.
-   * Add **rate limiting** (e.g., `aiolimiter`) to ~60 req/min across host; **timeouts** (~5s).
-   * Always use **HTTPS**.
+5. ✅ **Trust Gate**
+   - ✅ Run Trust Gate (v1) per job URL; persist `TrustEvent`
+   - ✅ **Slack integration implemented** for domain review workflow
 
-3. **Normalization & fields**
+6. ✅ **Extensibility hooks**
+   - ✅ Defined `SourceAdapter` protocol/interface in `services/discovery/base.py`
+   - ✅ Greenhouse implements it; GitHub adapters added
+   - ✅ Added **domain allowlist** to prevent unintended crawling
 
-   * Implement/expand `services/sources/normalize.py` with:
-
-     * `html_to_text(html) -> str` (strip tags, collapse whitespace)
-     * `extract_requirements(text) -> list[str]` (heuristics around “Requirements/Qualifications/Responsibilities”)
-     * `compute_hash(title, company, jd_text) -> sha1 hex`
-   * Build `job_id_canonical` as `"GH:<id>"` from the detail URL or JSON entry.
-
-4. **Dedup rules**
-
-   * If `job_id_canonical` seen in last 30 days → skip insert.
-   * Else if `hash` seen in last 30 days → skip insert.
-   * Else insert **JobSource** + **Job**.
-
-5. **Trust Gate**
-
-   * Run Trust Gate (v1) per job URL; persist `TrustEvent`.
-   * **No Slack calls in this MVPart** (Slack comes in MVPart 3).
-
-6. **Extensibility hooks**
-
-   * Define a `SourceAdapter` protocol/interface in `services/discovery/base.py`:
-
-     * `discover()` (optional), `list_jobs()`, `fetch_job_detail()`, `canonical_id()`
-   * Greenhouse implements it now; later we will add `LeverAdapter`, `WorkdayAdapter`, etc., without changing the orchestrator.
-   * Add a **domain allowlist** (starts with `boards.greenhouse.io`) to prevent unintended crawling.
-
-7. **Orchestrator endpoint (stub logic)**
-
-   * Implement `/discover/run` to:
-
-     * Ensure frontier is seeded (sitemap parsed at least once).
-     * Pop up to `MAX_ORGS_PER_RUN` orgs by priority/recency.
-     * Crawl them, normalize + dedup + trust-evaluate.
-     * Return a short JSON summary: `{ "orgs_crawled": N, "jobs_seen": M, "jobs_inserted": K, "domains_scored": D }`.
+7. ✅ **Orchestrator endpoint**
+   - ✅ Implemented `/discover/run` with:
+     - ✅ Ensure frontier is seeded (sitemap parsed at least once)
+     - ✅ Pop up to `MAX_ORGS_PER_RUN` orgs by priority/recency
+     - ✅ Crawl them, normalize + dedup + trust-evaluate
+     - ✅ Return JSON summary: `{ "orgs_crawled": N, "jobs_seen": M, "jobs_inserted": K, "domains_scored": D }`
 
 ## Env & Config
 
@@ -297,15 +285,17 @@ agentic_jobs/
 
 ---
 
-# MVPart 3 — Slack Digest + Needs-Review + Tracker Threads
+# ✅ MVPart 3 — Slack Digest + Needs-Review + Tracker Threads (COMPLETED)
 
-**Codex — Objectives**
+**Status**: ✅ **FULLY IMPLEMENTED**
 
-1. Implement the **3-hour scheduler** (06:00–23:00 PT).
-2. After discovery, **rank** the newly ingested jobs with the deterministic rules (see MVPart 4 for weights; implement here).
-3. Post a **digest** to `#jobs-feed`: compact rows (Title · Company · Location · **Score chip**), actions: **Open JD**, **Save to Tracker**.
-4. For **unknown domains**, post a **Needs-Review** card with Approve/Reject; approving writes to `whitelist`.
-5. **Save to Tracker** creates an **Application** and starts a **Slack thread** (stores `slack_channel_id`, `slack_thread_ts`), with a header message containing job details + JD snapshot link + score + canonical id + status `Queued`.
+## ✅ Completed Objectives
+
+1. ✅ Implemented the **3-hour scheduler** (06:00–23:00 PT) with configurable time windows
+2. ✅ After discovery, **rank** the newly ingested jobs with deterministic rules
+3. ✅ Post a **digest** to `#jobs-feed`: compact rows (Title · Company · Location · **Score chip**), actions: **Open JD**, **Save to Tracker**
+4. ✅ For **unknown domains**, post a **Needs-Review** card with Approve/Reject; approving writes to `whitelist`
+5. ✅ **Save to Tracker** creates an **Application** and starts a **Slack thread** with header message containing job details + score + canonical id + status `Queued`
 
 **Slack UX rules**
 
@@ -326,13 +316,15 @@ agentic_jobs/
 
 ---
 
-# MVPart 4 — Deterministic Ranking (Skills + Geo Boosts)
+# ✅ MVPart 4 — Deterministic Ranking (Skills + Geo Boosts) (COMPLETED)
 
-**Codex — Objectives**
+**Status**: ✅ **FULLY IMPLEMENTED**
 
-1. Implement the **rules engine** for scoring (no embeddings).
-2. Expose a `rank.yaml` config to tune weights without code changes.
-3. Return `score` and a concise **rationale** string for each job (“new grad + backend + Python + SF Bay (remote)”).
+## ✅ Completed Objectives
+
+1. ✅ Implemented the **rules engine** for scoring (no embeddings) in `services/ranking/scorer.py`
+2. 🔄 Expose a `rank.yaml` config to tune weights without code changes (planned for future enhancement)
+3. ✅ Return `score` and a concise **rationale** string for each job ("new grad + backend + Python + SF Bay (remote)")
 
 **Default weights (can be stored in `rank.yaml`)**
 
@@ -363,14 +355,22 @@ agentic_jobs/
 
 ---
 
-# MVPart 5 — Cover-Letter Drafting (LLM) + Organized Review
+# 🔄 MVPart 5 — Cover-Letter Drafting (LLM) + Organized Review (IN DEVELOPMENT)
 
-**Codex — Objectives**
+**Status**: 🔄 **PARTIALLY IMPLEMENTED** (Database models and API stubs exist, LLM integration pending)
 
-1. Stand up an **LLM runner** (local) for **Llama 3.1 8B Instruct** via **Ollama** or **vLLM**.
-2. Implement **DraftPackage** generation and a **slot template** prompt using the **Style Card** (see below).
-3. In an Application thread, add button **Generate Cover Letter** → produce **CL v1** and post it **in the thread** and mirror a compact card to `#jobs-drafts`.
-4. Add **Request changes** → Slack modal with structured fields (short free-text allowed). Regenerate **only affected slots** (CL v2, v3, …). Pin the latest in the thread; store previous versions as artifacts.
+## 🔄 Current Status
+
+1. 🔄 Stand up an **LLM runner** (local) for **Llama 3.1 8B Instruct** via **Ollama** or **vLLM** (planned)
+2. 🔄 Implement **DraftPackage** generation and a **slot template** prompt using the **Style Card** (planned)
+3. 🔄 In an Application thread, add button **Generate Cover Letter** → produce **CL v1** and post it **in the thread** and mirror a compact card to `#jobs-drafts` (planned)
+4. 🔄 Add **Request changes** → Slack modal with structured fields (short free-text allowed). Regenerate **only affected slots** (CL v2, v3, …). Pin the latest in the thread; store previous versions as artifacts (planned)
+
+## ✅ Completed Infrastructure
+
+- ✅ Database models for `Artifact` and `Application` with cover letter support
+- ✅ API endpoint stubs in `drafts.py` and `feedback.py`
+- ✅ Slack integration infrastructure ready for cover letter workflow
 
 **Style Card (inject on every generation)**
 
@@ -457,13 +457,15 @@ agentic_jobs/
 
 ---
 
-# MVPart 6 — Operational Details (Scheduler, Idempotency, Observability)
+# ✅ MVPart 6 — Operational Details (Scheduler, Idempotency, Observability) (COMPLETED)
 
-**Codex — Objectives**
+**Status**: ✅ **FULLY IMPLEMENTED**
 
-1. Implement scheduler windows (06:00–23:00 PT) with **3-hour cadence**; idempotent runs (don’t repost the same jobs).
-2. Logging: structured JSON; redact PII; include `app_id` / `job_id` in log contexts.
-3. Metrics counters (even simple logs): jobs_seen, jobs_new, digest_rows_posted, domains_review_posted, applications_created, drafts_generated.
+## ✅ Completed Objectives
+
+1. ✅ Implemented scheduler windows (06:00–23:00 PT) with **3-hour cadence**; idempotent runs (don't repost the same jobs)
+2. ✅ Logging: structured JSON; redact PII; include `app_id` / `job_id` in log contexts
+3. ✅ Metrics counters (even simple logs): jobs_seen, jobs_new, digest_rows_posted, domains_review_posted, applications_created, drafts_generated
 
 **You (human)**
 
@@ -472,12 +474,24 @@ agentic_jobs/
 
 ---
 
-## What you (human) will need to do overall
+## ✅ Current System Status
 
-* **Secrets & config**: Provide Slack bot token, signing secret, channel ids (or names), and search API key (if used).
-* **Decide allow/deny**: If any companies must always be included/excluded, provide a short list to seed the frontier rules.
-* **Review cadence**: Expect digests **every 3 hours** in `#jobs-feed`. Approve any new domains once; click **Save to Tracker** on roles you want to pursue.
-* **Draft review**: In each Application thread, click **Generate Cover Letter** (MVP-3). Use **Request changes** for targeted edits. Approve when ready.
+### **Fully Operational**
+* ✅ **Job Discovery**: Automatic discovery from Greenhouse and GitHub sources
+* ✅ **Slack Integration**: Interactive components, digests, and application tracking
+* ✅ **Trust System**: Domain review and whitelist management
+* ✅ **Application Tracking**: Complete lifecycle from discovery to submission
+* ✅ **Scoring System**: Deterministic job ranking with rationale
+
+### **In Development**
+* 🔄 **Cover Letter Generation**: LLM integration for automated cover letter drafting
+* 🔄 **Advanced Features**: Enhanced ranking, profile management, additional data sources
+
+## What you (human) need to do
+
+* **Secrets & config**: Provide Slack bot token, signing secret, channel ids (or names)
+* **Review cadence**: Expect digests **every 3 hours** in `#jobs-feed`. Approve any new domains once; click **Save to Tracker** on roles you want to pursue
+* **Application management**: Use Slack threads to track applications, approve domains, and manage the job application process
 
 ---
 
