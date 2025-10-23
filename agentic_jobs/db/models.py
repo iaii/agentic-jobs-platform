@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Text
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from agentic_jobs.core.enums import (
     ApplicationStatus,
     ArtifactType,
+    DomainReviewStatus,
     JobSourceType,
     SubmissionMode,
     TrustVerdict,
@@ -179,6 +180,58 @@ class Artifact(Base):
     )
 
     application: Mapped[Application] = relationship(back_populates="artifacts")
+
+
+class DigestLog(Base):
+    __tablename__ = "digest_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=False
+    )
+    digest_date: Mapped[date] = mapped_column(Date, nullable=False)
+    slack_channel_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    slack_message_ts: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+    job: Mapped[Job] = relationship("Job")
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "digest_date", name="uq_digest_job_date"),
+    )
+
+
+class DomainReview(Base):
+    __tablename__ = "domain_reviews"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    domain_root: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    status: Mapped[DomainReviewStatus] = mapped_column(
+        SAEnum(DomainReviewStatus, name="domain_review_status", native_enum=False),
+        nullable=False,
+        default=DomainReviewStatus.PENDING,
+    )
+    slack_channel_id: Mapped[Optional[str]] = mapped_column(String(64))
+    slack_message_ts: Mapped[Optional[str]] = mapped_column(String(32))
+    company_name: Mapped[Optional[str]] = mapped_column(String(255))
+    ats_type: Mapped[Optional[str]] = mapped_column(String(64))
+    muted_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
 
 class ProfileIdentity(Base):
