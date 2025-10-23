@@ -1,4 +1,4 @@
-# Agentic Jobs Platform — Production Ready
+# Agentic Jobs Platform
 
 This repo hosts the FastAPI + SQLAlchemy service that powers the complete Agentic Jobs Platform. The system provides seedless job discovery, normalization, deduplication, trust evaluation, Slack integration, and application tracking for automated job application management.
 
