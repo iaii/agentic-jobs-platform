@@ -52,7 +52,12 @@ def collect_digest_rows(
             )
         )
 
-    rows.sort(key=lambda row: row.score, reverse=True)
+    # Sort by score desc, tie-break by scraped_at desc
+    # Attach scraped_at alongside for sorting; not part of DigestRow to keep blocks stable
+    job_time_map = {j.id: j.scraped_at for j in jobs}
+    rows_with_time = [(row, job_time_map.get(row.job_id)) for row in rows]
+    rows_with_time.sort(key=lambda item: (item[0].score, item[1]), reverse=True)
+    rows = [row for row, _t in rows_with_time]
     return rows[:limit]
 
 

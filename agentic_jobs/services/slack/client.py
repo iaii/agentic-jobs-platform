@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping, MutableMapping, Optional
+import ssl
 
 import httpx
 
@@ -32,10 +33,18 @@ class SlackClient:
             "Content-Type": "application/json; charset=utf-8",
         }
         self._owns_client = client is None
+        verify_param: Any = True
+        try:  # Prefer certifi trust store to avoid local CA issues
+            import certifi  # type: ignore
+
+            verify_param = certifi.where()
+        except Exception:
+            verify_param = True
         self._client = client or httpx.AsyncClient(
             base_url=base_url,
             timeout=timeout,
             headers=headers,
+            verify=verify_param,
         )
 
     async def __aenter__(self) -> "SlackClient":

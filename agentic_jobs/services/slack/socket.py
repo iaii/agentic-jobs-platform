@@ -5,6 +5,9 @@ import json
 import logging
 from typing import Any
 import httpx
+import ssl
+import aiohttp
+import os
 
 from slack_sdk.socket_mode.aiohttp import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
@@ -90,16 +93,37 @@ async def _handle_socket_request(client: SocketModeClient, req: SocketModeReques
         LOGGER.warning("Unsupported payload container type: %s", type(payload_container))
         return
 
+    LOGGER.info("Socket interactive payload accepted; scheduling background processing")
     asyncio.create_task(_process_interaction(payload))
 
 
 async def start_socket_mode() -> None:
     global _socket_client
 
-    if _socket_client or not settings.slack_bot_token or not settings.slack_app_level_token:
+    if _socket_client:
+        return
+    if not settings.socket_mode_enabled:
+        LOGGER.info("Socket mode disabled via settings.")
+        return
+    if not settings.slack_bot_token or not settings.slack_app_level_token:
+        LOGGER.info("Socket mode not started: missing Slack tokens")
         return
 
-    web_client = AsyncWebClient(token=settings.slack_bot_token)
+    # Create Slack AsyncWebClient with certifi-backed SSL context to avoid local CA issues
+    try:
+        import certifi  # type: ignore
+
+        # Ensure Python and HTTP libs use certifi CA bundle for TLS (affects aiohttp websockets too)
+        ca_path = certifi.where()
+        os.environ.setdefault("SSL_CERT_FILE", ca_path)
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", ca_path)
+
+        ssl_context = ssl.create_default_context(cafile=ca_path)
+        aiohttp_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context))
+        web_client = AsyncWebClient(token=settings.slack_bot_token, session=aiohttp_session)
+    except Exception:  # noqa: BLE001
+        web_client = AsyncWebClient(token=settings.slack_bot_token)
+
     _socket_client = SocketModeClient(
         app_token=settings.slack_app_level_token,
         web_client=web_client,

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     slack_signing_secret: str | None = Field(None, alias="SLACK_SIGNING_SECRET")
     slack_jobs_feed_channel: str | None = Field(None, alias="SLACK_JOBS_FEED_CHANNEL")
     slack_jobs_drafts_channel: str | None = Field(None, alias="SLACK_JOBS_DRAFTS_CHANNEL")
+    socket_mode_enabled: bool = Field(True, alias="SOCKET_MODE_ENABLED")
     digest_batch_size: int = Field(20, alias="DIGEST_BATCH_SIZE")
     scheduler_window_start_hour_pt: int = Field(7, alias="SCHEDULER_WINDOW_START_HOUR_PT")
     scheduler_window_end_hour_pt: int = Field(23, alias="SCHEDULER_WINDOW_END_HOUR_PT")

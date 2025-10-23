@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import logging
 from uuid import UUID
 
 from sqlalchemy import select
@@ -12,6 +14,9 @@ from agentic_jobs.core.enums import ApplicationStatus, DomainReviewStatus
 from agentic_jobs.db import models
 from agentic_jobs.services.ranking import score_job
 from agentic_jobs.services.slack.client import SlackClient
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SlackActionError(RuntimeError):
@@ -62,6 +67,39 @@ def _next_human_id(session: Session) -> str:
     return f"{prefix}{next_seq:03d}"
 
 
+# --- New robust extractors for Slack context ---
+
+def _extract_channel_and_ts(payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Extract channel id and message/thread ts from diverse Slack payload shapes.
+
+    Supports: block_actions from channel messages, app_home, message shortcuts, and modals.
+    """
+    channel_id: str | None = None
+    thread_ts: str | None = None
+
+    # 1) Explicit fields
+    channel_id = (payload.get("channel") or {}).get("id") or channel_id
+    thread_ts = (payload.get("message") or {}).get("ts") or thread_ts
+
+    # 2) Container context (blocks interactivity)
+    container = payload.get("container") or {}
+    channel_id = container.get("channel_id") or container.get("channel") or channel_id
+    thread_ts = (
+        container.get("thread_ts")
+        or container.get("message_ts")
+        or container.get("ts")
+        or thread_ts
+    )
+
+    # 3) Message context inside actions payload (some clients include message)
+    message = payload.get("message") or {}
+    channel_id = (message.get("channel") or {}).get("id") or channel_id
+    thread_ts = message.get("thread_ts") or message.get("ts") or thread_ts
+
+    # 4) View submissions/modals won't have channel; fall back to metadata we embed later if needed
+    return channel_id, thread_ts
+
+
 async def handle_save_to_tracker(
     payload: dict[str, Any],
     session: Session,
@@ -94,15 +132,8 @@ async def handle_save_to_tracker(
     session.add(app)
     session.flush()
 
-    # Prefer explicit message context; fall back to container context which Slack sends for blocks
-    channel_id = payload.get("channel", {}).get("id")
-    thread_ts = (payload.get("message") or {}).get("ts")
-    if not channel_id:
-        container = payload.get("container") or {}
-        channel_id = container.get("channel_id") or container.get("channel")
-    if not thread_ts:
-        container = payload.get("container") or {}
-        thread_ts = container.get("thread_ts") or container.get("message_ts") or container.get("ts")
+    channel_id, thread_ts = _extract_channel_and_ts(payload)
+    LOGGER.debug("Resolved Slack context: channel=%s thread_ts=%s", channel_id, thread_ts)
     if not channel_id or not thread_ts:
         raise SlackActionError("Missing Slack channel or thread metadata.")
 
@@ -237,6 +268,11 @@ async def handle_interactive_request(
     session: Session,
     slack_client: SlackClient,
 ) -> dict[str, Any]:
+    try:
+        action_id = (payload.get("actions") or [{}])[0].get("action_id")
+        LOGGER.info("Slack interactive action received: %s", action_id)
+    except Exception:
+        LOGGER.info("Slack interactive action received: <unknown>")
     action_type = payload.get("type")
     if action_type != "block_actions":
         raise SlackActionError(f"Unsupported payload type: {action_type}")
@@ -247,6 +283,7 @@ async def handle_interactive_request(
 
     action_id = actions[0].get("action_id")
     if action_id == "save_to_tracker":
+        LOGGER.debug("Handling save_to_tracker action")
         return await handle_save_to_tracker(payload, session, slack_client)
     if action_id == "needs_review_approve":
         return await handle_needs_review_approve(payload, session, slack_client)

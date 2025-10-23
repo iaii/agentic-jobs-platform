@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """
 Test Slack Socket Mode Connection
-This script tests if your Slack tokens can actually connect to Slack
+This script tests if your Slack tokens can actually connect to Slack.
+
+Note: This is a manual connectivity check and is skipped in automated test runs.
 """
 
 import asyncio
 import os
 import sys
+import pytest
+
+
+# Skip during automated test runs (requires real Slack tokens and network)
+pytestmark = pytest.mark.skip(reason="Manual Slack connectivity test; skipped in CI")
 
 
 async def test_slack_connection():
@@ -40,8 +47,18 @@ async def test_slack_connection():
         
         print("🔄 Testing Slack API connection...")
         
-        # Test Bot Token
-        web_client = AsyncWebClient(token=settings.slack_bot_token)
+        # Test Bot Token with certifi-backed SSL session
+        import certifi
+        import aiohttp
+        import ssl as pyssl
+        import os
+        ca_path = certifi.where()
+        os.environ.setdefault("SSL_CERT_FILE", ca_path)
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", ca_path)
+        ssl_ctx = pyssl.create_default_context(cafile=ca_path)
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        session = aiohttp.ClientSession(connector=connector)
+        web_client = AsyncWebClient(token=settings.slack_bot_token, session=session)
         auth_response = await web_client.auth_test()
         
         if auth_response["ok"]:
@@ -51,10 +68,9 @@ async def test_slack_connection():
             print(f"   Bot ID: {auth_response.get('bot_id', 'Unknown')}")
         else:
             print(f"❌ Bot Token validation failed: {auth_response.get('error', 'Unknown error')}")
-            # Close underlying aiohttp session (AsyncWebClient has no close())
-            session = getattr(web_client, "session", None)
-            if session is not None and not session.closed:
-                await session.close()
+            sess = getattr(web_client, "session", None)
+            if sess is not None and not sess.closed:
+                await sess.close()
             return False
         
         print()
@@ -74,9 +90,9 @@ async def test_slack_connection():
             
             # Disconnect
             await socket_client.close()
-            session = getattr(web_client, "session", None)
-            if session is not None and not session.closed:
-                await session.close()
+            sess = getattr(web_client, "session", None)
+            if sess is not None and not sess.closed:
+                await sess.close()
             
             print()
             print("=" * 60)
@@ -91,7 +107,10 @@ async def test_slack_connection():
         except asyncio.TimeoutError:
             print("⚠️  Socket Mode connection timed out")
             print("   This might be a network issue or invalid app-level token.")
-            await web_client.close()
+            # Close the aiohttp session instead of web_client.close()
+            sess = getattr(web_client, "session", None)
+            if sess is not None and not sess.closed:
+                await sess.close()
             return False
         
     except Exception as e:
