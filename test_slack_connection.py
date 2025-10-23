@@ -51,7 +51,10 @@ async def test_slack_connection():
             print(f"   Bot ID: {auth_response.get('bot_id', 'Unknown')}")
         else:
             print(f"❌ Bot Token validation failed: {auth_response.get('error', 'Unknown error')}")
-            await web_client.close()
+            # Close underlying aiohttp session (AsyncWebClient has no close())
+            session = getattr(web_client, "session", None)
+            if session is not None and not session.closed:
+                await session.close()
             return False
         
         print()
@@ -71,7 +74,9 @@ async def test_slack_connection():
             
             # Disconnect
             await socket_client.close()
-            await web_client.close()
+            session = getattr(web_client, "session", None)
+            if session is not None and not session.closed:
+                await session.close()
             
             print()
             print("=" * 60)

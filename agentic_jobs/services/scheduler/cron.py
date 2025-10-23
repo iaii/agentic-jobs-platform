@@ -23,21 +23,34 @@ from agentic_jobs.services.slack.workflows import (
 LOGGER = logging.getLogger(__name__)
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 _scheduler_task: asyncio.Task | None = None
+_last_run_at_utc: datetime | None = None
 
 
 def _schedule_hours() -> list[int]:
-    return list(range(settings.scheduler_window_start_hour_pt, settings.scheduler_window_end_hour_pt + 1, 3))
+    # Determine hours within the window at the configured interval
+    interval = max(1, int(getattr(settings, "discovery_interval_hours", 3)))
+    return list(range(settings.scheduler_window_start_hour_pt, settings.scheduler_window_end_hour_pt + 1, interval))
 
 
 def _next_run_time(now_pt: datetime) -> datetime:
-    hours = _schedule_hours()
-    for hour in hours:
-        candidate = now_pt.replace(hour=hour, minute=0, second=0, microsecond=0)
-        if candidate >= now_pt - timedelta(minutes=1):
-            return candidate
-
-    next_day = now_pt.date() + timedelta(days=1)
-    return datetime.combine(next_day, time(hour=hours[0], minute=0, second=0), tzinfo=PT_ZONE)
+    # Compute the next aligned time at the configured hour interval within the window
+    interval = max(1, int(getattr(settings, "discovery_interval_hours", 3)))
+    start_hour = settings.scheduler_window_start_hour_pt
+    end_hour = settings.scheduler_window_end_hour_pt
+    # Align to the next interval boundary
+    current_hour = now_pt.hour
+    # Find the smallest h >= current_hour that satisfies (h - start) % interval == 0
+    candidate_hour = current_hour
+    while True:
+        if start_hour <= candidate_hour <= end_hour and ((candidate_hour - start_hour) % interval == 0):
+            candidate = now_pt.replace(hour=candidate_hour, minute=0, second=0, microsecond=0)
+            if candidate >= now_pt - timedelta(minutes=1):
+                return candidate
+        candidate_hour += 1
+        if candidate_hour > end_hour:
+            # Move to next day at the first interval
+            next_day = now_pt.date() + timedelta(days=1)
+            return datetime.combine(next_day, time(hour=start_hour, minute=0, second=0), tzinfo=PT_ZONE)
 
 
 async def _run_discovery_cycle(run_started: datetime) -> None:
@@ -142,6 +155,7 @@ async def _post_digest_and_reviews(session, run_started: datetime) -> None:
 
 
 async def scheduler_job() -> None:
+    global _last_run_at_utc
     now_pt = datetime.now(tz=PT_ZONE)
     if not (_schedule_hours()[0] <= now_pt.hour <= settings.scheduler_window_end_hour_pt):
         LOGGER.info("Current time outside scheduler window: %s", now_pt.isoformat())
@@ -151,16 +165,24 @@ async def scheduler_job() -> None:
     run_started = datetime.now(tz=timezone.utc)
     try:
         await _run_discovery_cycle(run_started)
+        _last_run_at_utc = run_started
     except Exception:  # noqa: BLE001
         LOGGER.exception("Scheduled cycle failed.")
 
 
 async def _scheduler_loop() -> None:
+    # Run immediately on startup if within window and hasn't run recently
+    await scheduler_job()
     while True:
         now_pt = datetime.now(tz=PT_ZONE)
         target = _next_run_time(now_pt)
         sleep_seconds = max((target - now_pt).total_seconds(), 0)
         await asyncio.sleep(sleep_seconds)
+        # Ensure interval gating (avoid duplicate runs if woke up early)
+        if _last_run_at_utc is not None:
+            interval_hours = max(1, int(getattr(settings, "discovery_interval_hours", 3)))
+            if (datetime.now(tz=timezone.utc) - _last_run_at_utc) < timedelta(hours=interval_hours - 0.01):
+                continue
         await scheduler_job()
 
 

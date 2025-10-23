@@ -33,6 +33,12 @@ echo "Jobs Drafts Channel: ${SLACK_JOBS_DRAFTS_CHANNEL}"
 echo "==================================="
 echo ""
 
+# Ensure database schema is up-to-date before starting the server
+alembic upgrade head || {
+  echo "Failed to run database migrations. Exiting." >&2
+  exit 1
+}
+
 # Start the server
 uvicorn agentic_jobs.main:app --reload --host 0.0.0.0 --port 8000
 

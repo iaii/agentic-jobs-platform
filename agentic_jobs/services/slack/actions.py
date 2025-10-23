@@ -94,8 +94,15 @@ async def handle_save_to_tracker(
     session.add(app)
     session.flush()
 
+    # Prefer explicit message context; fall back to container context which Slack sends for blocks
     channel_id = payload.get("channel", {}).get("id")
-    thread_ts = payload.get("message", {}).get("ts")
+    thread_ts = (payload.get("message") or {}).get("ts")
+    if not channel_id:
+        container = payload.get("container") or {}
+        channel_id = container.get("channel_id") or container.get("channel")
+    if not thread_ts:
+        container = payload.get("container") or {}
+        thread_ts = container.get("thread_ts") or container.get("message_ts") or container.get("ts")
     if not channel_id or not thread_ts:
         raise SlackActionError("Missing Slack channel or thread metadata.")
 
@@ -150,7 +157,13 @@ async def handle_needs_review_approve(
     session.commit()
 
     channel_id = payload.get("channel", {}).get("id")
-    message_ts = payload.get("message", {}).get("ts")
+    message_ts = (payload.get("message") or {}).get("ts")
+    if not channel_id:
+        container = payload.get("container") or {}
+        channel_id = container.get("channel_id") or container.get("channel")
+    if not message_ts:
+        container = payload.get("container") or {}
+        message_ts = container.get("message_ts") or container.get("thread_ts") or container.get("ts")
     if channel_id and message_ts:
         text = f"`{domain.domain_root}` approved by {approver}."
         await slack_client.update_message(
@@ -193,7 +206,13 @@ async def handle_needs_review_reject(
     session.commit()
 
     channel_id = payload.get("channel", {}).get("id")
-    message_ts = payload.get("message", {}).get("ts")
+    message_ts = (payload.get("message") or {}).get("ts")
+    if not channel_id:
+        container = payload.get("container") or {}
+        channel_id = container.get("channel_id") or container.get("channel")
+    if not message_ts:
+        container = payload.get("container") or {}
+        message_ts = container.get("message_ts") or container.get("thread_ts") or container.get("ts")
     if channel_id and message_ts:
         text = (
             f"`{domain.domain_root}` muted by {reviewer}. "
