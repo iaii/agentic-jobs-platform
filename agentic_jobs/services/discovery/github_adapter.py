@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Sequence
+from urllib.parse import urlparse
 
 import httpx
 
@@ -34,6 +35,36 @@ def _stringify(value: Any) -> str:
     if isinstance(value, dict):
         return json.dumps(value)
     return str(value)
+
+
+def _slug_to_company_name(slug: str | None) -> str | None:
+    if not slug:
+        return None
+    cleaned = slug.replace("_", "-")
+    parts = [part for part in cleaned.split("-") if part]
+    if not parts:
+        return None
+    return " ".join(part.capitalize() for part in parts)
+
+
+def _infer_company_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    if host.endswith("lever.co") and path_parts:
+        return _slug_to_company_name(path_parts[0])
+    if host.endswith("greenhouse.io") and path_parts:
+        return _slug_to_company_name(path_parts[0])
+    if host.endswith("myworkdayjobs.com") and path_parts:
+        return _slug_to_company_name(path_parts[0])
+    if host.endswith("icims.com"):
+        return _slug_to_company_name(host.split(".")[0])
+    if host.startswith("jobs.") and len(host.split(".")) > 2:
+        return _slug_to_company_name(host.split(".")[1])
+    return _slug_to_company_name(host.split(".")[0])
 
 
 class GithubPositionsAdapter(SourceAdapter):
@@ -90,12 +121,6 @@ class GithubPositionsAdapter(SourceAdapter):
             if self._max_age_delta and posted_at < now - self._max_age_delta:
                 continue
 
-            company = _first_non_empty(
-                item.get("company"),
-                item.get("org"),
-                item.get("organization"),
-                default="Unknown Company",
-            )
             title = _first_non_empty(
                 item.get("title"),
                 item.get("position"),
@@ -109,6 +134,18 @@ class GithubPositionsAdapter(SourceAdapter):
             )
             if not url:
                 continue
+            company = _first_non_empty(
+                item.get("company"),
+                item.get("company_name"),
+                item.get("org"),
+                item.get("organization"),
+            )
+            if not company:
+                company = (
+                    _infer_company_from_url(item.get("company_url"))
+                    or _infer_company_from_url(url)
+                    or "Unknown Company"
+                )
 
             job_id = self._derive_job_id(item, url)
             location = _first_non_empty(
@@ -135,10 +172,10 @@ class GithubPositionsAdapter(SourceAdapter):
         item: dict[str, Any] = job_ref.metadata.get("item", {})
         company_name = job_ref.metadata.get("company") or _first_non_empty(
             item.get("company"),
+            item.get("company_name"),
             item.get("org"),
             item.get("organization"),
-            default="Unknown Company",
-        )
+        ) or _infer_company_from_url(item.get("company_url")) or _infer_company_from_url(job_ref.detail_url) or "Unknown Company"
 
         html = self._build_detail_html(job_ref, item, company_name)
         return JobDetail(
@@ -218,24 +255,64 @@ class GithubPositionsAdapter(SourceAdapter):
             f"<h1>{job_ref.title}</h1>",
             f"<p><strong>Company:</strong> {company}</p>",
             f"<p><strong>Location:</strong> {_stringify(item.get('location') or item.get('locations') or job_ref.location)}</p>",
-            f"<p><strong>Source URL:</strong> {job_ref.detail_url}</p>",
+            f"<p><strong>Source URL:</strong> <a href='{job_ref.detail_url}'>{job_ref.detail_url}</a></p>",
         ]
 
-        description = _first_non_empty(
+        overview = _first_non_empty(
             item.get("description"),
             item.get("notes"),
             item.get("about"),
+            item.get("summary"),
         )
-        if description:
-            sections.append(f"<div><p>{description}</p></div>")
-
         qualifications = item.get("qualifications") or item.get("requirements")
-        if isinstance(qualifications, list):
-            bullets = "".join(f"<li>{_stringify(entry)}</li>" for entry in qualifications if entry)
-            if bullets:
-                sections.append(f"<h2>Requirements</h2><ul>{bullets}</ul>")
-        elif isinstance(qualifications, str):
-            sections.append(f"<h2>Requirements</h2><p>{qualifications}</p>")
+        responsibilities = item.get("responsibilities")
+        perks = item.get("perks")
+
+        def _append_section(heading: str, content: Any) -> None:
+            if not content:
+                return
+            sections.append(f"<h2>{heading}</h2>")
+            if isinstance(content, list):
+                bullets = "".join(f"<li>{_stringify(entry)}</li>" for entry in content if entry)
+                if bullets:
+                    sections.append(f"<ul>{bullets}</ul>")
+            else:
+                sections.append(f"<p>{_stringify(content)}</p>")
+
+        _append_section("Overview", overview)
+        _append_section("Key Qualifications", qualifications)
+        _append_section("Responsibilities", responsibilities)
+        _append_section("Perks", perks)
+
+        metadata_pairs = [
+            (key, value)
+            for key, value in item.items()
+            if isinstance(key, str)
+            and key.lower()
+            not in {
+                "company",
+                "organization",
+                "title",
+                "location",
+                "locations",
+                "url",
+                "description",
+                "notes",
+                "about",
+                "summary",
+                "qualifications",
+                "requirements",
+                "responsibilities",
+                "perks",
+            }
+        ]
+
+        if metadata_pairs:
+            sections.append("<h2>Additional Details</h2>")
+            sections.append("<ul>")
+            for key, value in metadata_pairs:
+                sections.append(f"<li><strong>{key.capitalize()}:</strong> {_stringify(value)}</li>")
+            sections.append("</ul>")
 
         return "\n".join(sections)
 

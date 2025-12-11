@@ -6,6 +6,7 @@ from agentic_jobs.services.slack.digest import DigestRow, build_digest_blocks
 def test_build_digest_blocks_includes_actions() -> None:
     row = DigestRow(
         job_id=uuid.uuid4(),
+        canonical_id="GH:12345",
         title="Backend Software Engineer",
         company="Acme Corp",
         location="Seattle, WA",

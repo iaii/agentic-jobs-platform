@@ -7,6 +7,9 @@ This script tests if your Slack tokens can actually connect to Slack
 import asyncio
 import os
 import sys
+import ssl
+
+import certifi
 
 
 async def test_slack_connection():
@@ -41,7 +44,9 @@ async def test_slack_connection():
         print("🔄 Testing Slack API connection...")
         
         # Test Bot Token
-        web_client = AsyncWebClient(token=settings.slack_bot_token)
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        web_client = AsyncWebClient(token=settings.slack_bot_token, ssl=ssl_context)
         auth_response = await web_client.auth_test()
         
         if auth_response["ok"]:

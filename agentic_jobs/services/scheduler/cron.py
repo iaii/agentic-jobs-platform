@@ -110,10 +110,8 @@ async def _post_digest_and_reviews(session, run_started: datetime) -> None:
     if not settings.slack_bot_token or not settings.slack_jobs_feed_channel:
         if digest_rows or candidates:
             LOGGER.info("Slack not configured; skipping message post for this cycle.")
-        return
-
-    if not digest_rows and not candidates:
-        LOGGER.info("No digest rows or needs-review candidates for this cycle.")
+        else:
+            LOGGER.info("Slack not configured; cannot post empty digest notification.")
         return
 
     async with SlackClient(settings.slack_bot_token) as slack_client:
@@ -137,6 +135,16 @@ async def _post_digest_and_reviews(session, run_started: datetime) -> None:
                     channel_id=channel_id,
                     message_ts=message_ts,
                 )
+        else:
+            LOGGER.info("No new postings for %s; sending empty digest notice.", digest_day)
+            try:
+                await slack_client.post_message(
+                    channel=settings.slack_jobs_feed_channel,
+                    text=f"{digest_day.strftime('%b %d')} digest — no new postings",
+                    blocks=build_digest_blocks([]),
+                )
+            except SlackError as exc:
+                LOGGER.exception("Failed to post no-new-roles digest: %s", exc)
 
         for candidate in candidates:
             try:

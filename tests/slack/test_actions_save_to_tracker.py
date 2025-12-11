@@ -1,5 +1,7 @@
 import asyncio
+import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -13,6 +15,11 @@ from agentic_jobs.services.slack.client import SlackResponse
 class DummySlackClient:
     def __init__(self) -> None:
         self.thread_calls: list[dict] = []
+        self.message_calls: list[dict] = []
+
+    async def post_message(self, channel: str, *, blocks=None, text=None):
+        self.message_calls.append({"channel": channel, "blocks": blocks, "text": text})
+        return SlackResponse(ok=True, data={"ts": "1700000000.111111", "channel": channel})
 
     async def post_thread_message(self, channel: str, thread_ts: str, *, blocks=None, text=None):
         self.thread_calls.append(
@@ -23,10 +30,14 @@ class DummySlackClient:
                 "text": text,
             }
         )
-        return SlackResponse(ok=True, data={"ts": "1700000000.123456", "channel": channel})
+        return SlackResponse(ok=True, data={"ts": "1700000000.222222", "channel": channel})
 
 
-def test_handle_save_to_tracker_creates_application(sqlite_session):
+def test_handle_save_to_tracker_creates_application(sqlite_session, monkeypatch):
+    monkeypatch.setattr(
+        "agentic_jobs.services.slack.actions.settings",
+        SimpleNamespace(slack_jobs_drafts_channel="CDRAFT"),
+    )
     job = models.Job(
         id=uuid4(),
         title="Backend SWE",
@@ -53,7 +64,7 @@ def test_handle_save_to_tracker_creates_application(sqlite_session):
         "actions": [
             {
                 "action_id": "save_to_tracker",
-                "value": str(job.id),
+                "value": json.dumps({"job_id": str(job.id), "canonical_id": job.job_id_canonical}),
             }
         ],
     }
@@ -65,6 +76,8 @@ def test_handle_save_to_tracker_creates_application(sqlite_session):
 
     assert "APP-" in response["text"]
     assert application.human_id.startswith("APP-")
-    assert application.slack_channel_id == "C123"
-    assert application.slack_thread_ts == "1700000000.123456"
+    assert application.slack_channel_id == "CDRAFT"
+    assert application.slack_thread_ts == "1700000000.222222"
+    assert client.message_calls[0]["channel"] == "CDRAFT"
     assert client.thread_calls
+    assert client.thread_calls[0]["thread_ts"] == "1700000000.111111"

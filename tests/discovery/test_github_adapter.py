@@ -61,6 +61,39 @@ def test_github_adapter_list_jobs(test_settings, github_transport_factory, sourc
     assert job.detail_url.startswith("https://")
 
 
+def test_github_adapter_infers_company_from_url(test_settings, github_transport_factory) -> None:
+    import httpx
+
+    overrides = {
+        ("GET", "/SimplifyJobs/New-Grad-Positions/main/data/positions.json"): httpx.Response(
+            200,
+            json=[
+                {
+                    "title": "Autonomy Engineer",
+                    "url": "https://jobs.lever.co/shieldai/12345",
+                    "date_posted": "2099-01-01",
+                }
+            ],
+        )
+    }
+    transport = github_transport_factory(overrides=overrides)
+    adapter, client = _build_adapter(
+        test_settings,
+        transport,
+        source_name="simplify",
+        slug="simplify",
+        urls=["https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json"],
+    )
+    try:
+        jobs = asyncio.run(adapter.list_jobs("simplify"))
+    finally:
+        asyncio.run(adapter.aclose())
+        asyncio.run(client.aclose())
+
+    assert jobs
+    assert jobs[0].metadata["company"] == "Shieldai"
+
+
 def test_github_adapter_fetch_detail(test_settings, github_transport_factory) -> None:
     transport = github_transport_factory()
     adapter, client = _build_adapter(
@@ -82,6 +115,7 @@ def test_github_adapter_fetch_detail(test_settings, github_transport_factory) ->
 
     assert detail.company_name
     assert "<h1>" in detail.html
+    assert "TestCorp platform team" in detail.html
 
 
 def test_github_adapter_fallback_url(test_settings, github_transport_factory) -> None:

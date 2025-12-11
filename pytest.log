@@ -1,0 +1,138 @@
+F..............F.................                                        [100%]
+=================================== FAILURES ===================================
+____________________________ test_slack_connection _____________________________
+async def functions are not natively supported.
+You need to install a suitable plugin for your async framework, for example:
+  - anyio
+  - pytest-asyncio
+  - pytest-tornasync
+  - pytest-trio
+  - pytest-twisted
+__________________ test_build_digest_blocks_includes_actions ___________________
+
+    def test_build_digest_blocks_includes_actions() -> None:
+>       row = DigestRow(
+            job_id=uuid.uuid4(),
+            title="Backend Software Engineer",
+            company="Acme Corp",
+            location="Seattle, WA",
+            url="https://example.com/job",
+            score=0.82,
+            rationale="title fit, geo boost",
+        )
+E       TypeError: DigestRow.__init__() missing 1 required positional argument: 'job_canonical_id'
+
+tests/slack/test_digest_render.py:7: TypeError
+=============================== warnings summary ===============================
+../../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/formparsers.py:12
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+../../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/fastapi/routing.py:211: 25 warnings
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/fastapi/routing.py:211: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    is_coroutine = asyncio.iscoroutinefunction(dependant.call)
+
+agentic_jobs/main.py:22
+  /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform/agentic_jobs/main.py:22: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+../../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/fastapi/applications.py:4495
+../../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/fastapi/applications.py:4495
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/fastapi/applications.py:4495: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+agentic_jobs/main.py:27
+  /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform/agentic_jobs/main.py:27: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+../../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/_utils.py:42
+../../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/_utils.py:42
+tests/test_endpoints.py::test_trust_evaluate_stub
+tests/test_endpoints.py::test_applications_create_stub
+tests/test_endpoints.py::test_discover_run_endpoint
+tests/test_endpoints.py::test_drafts_create_stub
+tests/test_endpoints.py::test_drafts_feedback_stub
+tests/test_health.py::test_healthz_ok
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/_utils.py:42: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or (
+
+../../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/_utils.py:43
+../../../../../Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/_utils.py:43
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/starlette/_utils.py:43: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    callable(obj) and asyncio.iscoroutinefunction(obj.__call__)
+
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+  /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform/agentic_jobs/services/discovery/orchestrator.py:57: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    cutoff = datetime.utcnow() - timedelta(days=30)
+
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+  /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform/agentic_jobs/services/discovery/orchestrator.py:110: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+  /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform/agentic_jobs/services/discovery/orchestrator.py:126: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+  /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform/agentic_jobs/services/discovery/orchestrator.py:194: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    scraped_at=datetime.utcnow(),
+
+tests/discovery/test_frontier_greenhouse.py: 12 warnings
+tests/slack/test_actions_needs_review.py: 6 warnings
+tests/slack/test_actions_save_to_tracker.py: 3 warnings
+  /Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_inserts_jobs
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+  /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform/agentic_jobs/services/discovery/orchestrator.py:76: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    frontier.last_crawled_at = datetime.utcnow()
+
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+tests/discovery/test_frontier_greenhouse.py::test_run_discovery_with_github_adapters
+tests/discovery/test_github_adapter.py::test_github_adapter_list_jobs[simplify-simplify-urls0]
+tests/discovery/test_github_adapter.py::test_github_adapter_list_jobs[newgrad2026-newgrad2026-urls1]
+tests/discovery/test_github_adapter.py::test_github_adapter_infers_company_from_url
+tests/discovery/test_github_adapter.py::test_github_adapter_fetch_detail
+tests/discovery/test_github_adapter.py::test_github_adapter_fallback_url
+tests/discovery/test_github_adapter.py::test_github_adapter_filters_old_jobs
+tests/discovery/test_github_adapter.py::test_github_adapter_supports_listings_container
+  /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform/agentic_jobs/services/discovery/github_adapter.py:116: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow().replace(tzinfo=timezone.utc)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED test_slack_connection.py::test_slack_connection - Failed: async def fu...
+FAILED tests/slack/test_digest_render.py::test_build_digest_blocks_includes_actions
+2 failed, 31 passed, 92 warnings in 0.28s

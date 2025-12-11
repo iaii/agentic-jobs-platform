@@ -43,6 +43,7 @@ def collect_digest_rows(
         rows.append(
             DigestRow(
                 job_id=job.id,
+                canonical_id=job.job_id_canonical,
                 title=job.title,
                 company=job.company_name,
                 location=job.location,

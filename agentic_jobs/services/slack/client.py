@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Mapping, MutableMapping, Optional
 
 import httpx
+import ssl
+import certifi
 
 
 class SlackError(RuntimeError):
@@ -32,11 +34,16 @@ class SlackClient:
             "Content-Type": "application/json; charset=utf-8",
         }
         self._owns_client = client is None
-        self._client = client or httpx.AsyncClient(
-            base_url=base_url,
-            timeout=timeout,
-            headers=headers,
-        )
+        if client is not None:
+            self._client = client
+        else:
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            self._client = httpx.AsyncClient(
+                base_url=base_url,
+                timeout=timeout,
+                headers=headers,
+                verify=ssl_context,
+            )
 
     async def __aenter__(self) -> "SlackClient":
         return self
@@ -98,6 +105,19 @@ class SlackClient:
             payload["blocks"] = blocks
         return await self._call("chat.update", payload)
 
+    async def post_ephemeral(
+        self,
+        channel: str,
+        user: str,
+        *,
+        text: str,
+        blocks: list[Mapping[str, Any]] | None = None,
+    ) -> SlackResponse:
+        payload: MutableMapping[str, Any] = {"channel": channel, "user": user, "text": text}
+        if blocks is not None:
+            payload["blocks"] = blocks
+        return await self._call("chat.postEphemeral", payload)
+
     async def list_conversations(
         self,
         *,
@@ -117,13 +137,16 @@ class SlackClient:
         *,
         method: str = "POST",
     ) -> SlackResponse:
-        if method == "POST":
-            response = await self._client.post(f"/{method_name}", json=payload)
-        else:
-            response = await self._client.get(f"/{method_name}", params=payload)
+        try:
+            if method == "POST":
+                response = await self._client.post(f"/{method_name}", json=payload)
+            else:
+                response = await self._client.get(f"/{method_name}", params=payload)
 
-        response.raise_for_status()
-        data = response.json()
-        if not data.get("ok", False):
-            raise SlackError(data.get("error", "unknown_error"))
-        return SlackResponse(ok=True, data=data)
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("ok", False):
+                raise SlackError(data.get("error", "unknown_error"))
+            return SlackResponse(ok=True, data=data)
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            raise SlackError(str(exc)) from exc

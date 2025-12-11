@@ -20,18 +20,16 @@ This repo hosts the FastAPI + SQLAlchemy service that powers the complete Agenti
 - **Whitelist management** for approved domains and companies
 
 ### 📱 **Slack Integration**
-- **Interactive Slack components** with "Save to Tracker" and "Open JD" buttons
-- **Automated digest posting** with job scoring and rationale
-- **Needs-Review cards** for unknown domains requiring human approval
-- **Application thread management** with one thread per application
+- **Interactive Slack components** with "Save to Tracker" / "Open JD" buttons carrying canonical IDs for reliable lookups
+- **Automated digest posting** with job scoring, rationale, and an explicit “no new postings” notice when nothing qualifies
+- **Needs-review cards** for unknown domains requiring human approval
+- **Tracker handoff to drafts channel**: saving a role automatically posts the job card in `SLACK_JOBS_DRAFTS_CHANNEL` and starts a dedicated thread for cover-letter work while still sending the requester an ephemeral confirmation
 - **Socket Mode integration** for real-time Slack event handling
 
 ### 📊 **Application Tracking**
-- **Complete application lifecycle** from discovery to submission tracking
-- **Human-readable application IDs** (APP-YYYY-NNN format)
-- **Job scoring system** with deterministic rules for title, location, and skills matching
-- **Artifact management** for cover letters, JD snapshots, and confirmations
-- **Profile management** system for user identity, skills, and project information
+- **Queue + tracker entries** created directly from Slack or API triggers
+- **Human-readable application IDs** (APP-YYYY-NNN format) with deterministic job scores recorded alongside each application
+- **Per-application Slack threads** anchored in the drafts channel, ready for cover-letter collaboration
 
 ### 🔄 **Automation & Scheduling**
 - **3-hour discovery cycles** with configurable time windows (06:00-23:00 PT)
@@ -140,8 +138,10 @@ export DIGEST_BATCH_SIZE="20"
 ### 3. Load environment and start the API
 
 ```bash
-# Load your environment variables
+# Load your environment variables (example using env_local.sh)
 source env_local.sh
+# or if you keep secrets in .env:
+set -a && source .env && set +a
 
 # Start the server
 ./start_server.sh
