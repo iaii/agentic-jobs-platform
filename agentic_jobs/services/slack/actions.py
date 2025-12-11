@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -8,10 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from agentic_jobs.config import settings
 from agentic_jobs.core.enums import ApplicationStatus, DomainReviewStatus
 from agentic_jobs.db import models
 from agentic_jobs.services.ranking import score_job
 from agentic_jobs.services.slack.client import SlackClient
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SlackActionError(RuntimeError):
@@ -23,11 +29,41 @@ def _extract_user_name(payload: dict[str, Any]) -> str:
     return user.get("username") or user.get("name") or user.get("id") or "unknown"
 
 
-def _parse_job_id(action_value: str) -> UUID:
+def _extract_user_id(payload: dict[str, Any]) -> str | None:
+    user = payload.get("user") or {}
+    return user.get("id")
+
+
+def _parse_action_job_context(value: str | None) -> tuple[UUID | None, str | None]:
+    if not value:
+        raise SlackActionError("Missing job identifier")
+    job_uuid: UUID | None = None
+    canonical_id: str | None = None
     try:
-        return UUID(action_value)
-    except (ValueError, AttributeError) as exc:
-        raise SlackActionError("Invalid job identifier") from exc
+        data = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        data = None
+    if isinstance(data, dict):
+        raw_uuid = data.get("job_id")
+        canonical_id = data.get("canonical_id")
+        if raw_uuid:
+            try:
+                job_uuid = UUID(raw_uuid)
+            except (ValueError, TypeError):
+                job_uuid = None
+        if canonical_id:
+            canonical_id = str(canonical_id)
+        else:
+            canonical_id = None
+    else:
+        # Legacy payload: UUID string
+        try:
+            job_uuid = UUID(value)
+        except (ValueError, TypeError):
+            canonical_id = value
+    if not job_uuid and not canonical_id:
+        raise SlackActionError("Invalid job identifier")
+    return job_uuid, canonical_id
 
 
 def _build_thread_blocks(job: models.Job, score: float, rationale: str, app_human_id: str) -> list[dict[str, Any]]:
@@ -68,8 +104,14 @@ async def handle_save_to_tracker(
     slack_client: SlackClient,
 ) -> dict[str, Any]:
     action = (payload.get("actions") or [])[0]
-    job_id = _parse_job_id(action.get("value"))
-    job = session.get(models.Job, job_id)
+    job_uuid, canonical_id = _parse_action_job_context(action.get("value"))
+    job = None
+    if job_uuid:
+        job = session.get(models.Job, job_uuid)
+    if job is None and canonical_id:
+        job = session.execute(
+            select(models.Job).where(models.Job.job_id_canonical == canonical_id)
+        ).scalar_one_or_none()
     if job is None:
         raise SlackActionError("Job not found for tracker save.")
 
@@ -94,30 +136,73 @@ async def handle_save_to_tracker(
     session.add(app)
     session.flush()
 
-    # Prefer explicit message context; fall back to container context which Slack sends for blocks
-    channel_id = payload.get("channel", {}).get("id")
-    thread_ts = (payload.get("message") or {}).get("ts")
-    if not channel_id:
+    # Source channel/thread from the interaction payload
+    source_channel_id = payload.get("channel", {}).get("id")
+    source_thread_ts = (payload.get("message") or {}).get("ts")
+    if not source_channel_id:
         container = payload.get("container") or {}
-        channel_id = container.get("channel_id") or container.get("channel")
-    if not thread_ts:
+        source_channel_id = container.get("channel_id") or container.get("channel")
+    if not source_thread_ts:
         container = payload.get("container") or {}
-        thread_ts = container.get("thread_ts") or container.get("message_ts") or container.get("ts")
-    if not channel_id or not thread_ts:
+        source_thread_ts = container.get("thread_ts") or container.get("message_ts") or container.get("ts")
+    if not source_channel_id or not source_thread_ts:
         raise SlackActionError("Missing Slack channel or thread metadata.")
 
-    response = await slack_client.post_thread_message(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        blocks=_build_thread_blocks(job, score_result.score, score_result.rationale, human_id),
-    )
-    app.slack_channel_id = channel_id
-    app.slack_thread_ts = response.data.get("ts") or thread_ts
+    tracker_blocks = _build_thread_blocks(job, score_result.score, score_result.rationale, human_id)
+    target_channel = settings.slack_jobs_drafts_channel
+    thread_anchor_ts: str | None = None
+
+    if target_channel:
+        try:
+            response = await slack_client.post_message(
+                channel=target_channel,
+                text=f"Queued {human_id} — {job.title}",
+                blocks=tracker_blocks,
+            )
+            target_channel = response.data.get("channel", target_channel)
+            parent_ts = response.data.get("ts")
+            if parent_ts:
+                thread_response = await slack_client.post_thread_message(
+                    channel=target_channel,
+                    thread_ts=parent_ts,
+                    text=f"Cover-letter workspace for `{human_id}`. Drop drafts in this thread.",
+                )
+                thread_anchor_ts = thread_response.data.get("ts") or parent_ts
+            else:
+                thread_anchor_ts = parent_ts or source_thread_ts
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Failed to post tracker card in drafts channel %s", target_channel)
+            target_channel = None
+
+    if not target_channel:
+        # Fall back to replying in the original thread if drafts channel unavailable
+        target_channel = source_channel_id
+        try:
+            response = await slack_client.post_thread_message(
+                channel=target_channel,
+                thread_ts=source_thread_ts,
+                blocks=tracker_blocks,
+            )
+            thread_anchor_ts = response.data.get("ts") or source_thread_ts
+        except Exception:  # noqa: BLE001
+            thread_anchor_ts = source_thread_ts
+
+    app.slack_channel_id = target_channel
+    app.slack_thread_ts = thread_anchor_ts
 
     session.commit()
-    return {
-        "text": f"Queued `{human_id}` with score {score_result.score:.2f}.",
-    }
+    # If user context exists, send an ephemeral confirmation as well
+    user_id = _extract_user_id(payload)
+    if user_id:
+        try:
+            await slack_client.post_ephemeral(
+                channel=source_channel_id,
+                user=user_id,
+                text=f"Queued `{human_id}` with score {score_result.score:.2f}.",
+            )
+        except Exception:
+            pass
+    return {"text": f"Queued `{human_id}` with score {score_result.score:.2f}."}
 
 
 async def handle_needs_review_approve(

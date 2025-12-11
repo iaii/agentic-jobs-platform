@@ -5,6 +5,9 @@ import json
 import logging
 from typing import Any
 import httpx
+import os
+import ssl
+import certifi
 
 from slack_sdk.socket_mode.aiohttp import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
@@ -30,7 +33,8 @@ async def _process_interaction(payload: dict[str, Any]) -> None:
         result = await handle_interactive_request(payload, session, slack_client)
         if response_url and isinstance(result, dict) and result.get("text"):
             try:
-                async with httpx.AsyncClient(timeout=5.0) as http_client:
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
+                async with httpx.AsyncClient(timeout=5.0, verify=ssl_context) as http_client:
                     await http_client.post(
                         response_url,
                         json={
@@ -45,7 +49,8 @@ async def _process_interaction(payload: dict[str, Any]) -> None:
         LOGGER.warning("Interactive handler failed: %s", exc)
         if response_url:
             try:
-                async with httpx.AsyncClient(timeout=5.0) as http_client:
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
+                async with httpx.AsyncClient(timeout=5.0, verify=ssl_context) as http_client:
                     await http_client.post(
                         response_url,
                         json={
@@ -68,8 +73,17 @@ async def _handle_socket_request(client: SocketModeClient, req: SocketModeReques
         await client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
         return
 
-    # Immediately ACK to avoid Slack client error symbol if processing takes time
-    await client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
+    # Immediately ACK with a lightweight ephemeral message to avoid Slack error indicator
+    await client.send_socket_mode_response(
+        SocketModeResponse(
+            envelope_id=req.envelope_id,
+            payload={
+                "response_type": "ephemeral",
+                "replace_original": False,
+                "text": "Saving to tracker...",
+            },
+        )
+    )
 
     # Slack SDK versions differ: sometimes the interactive payload is a JSON string
     # under key "payload"; sometimes req.payload already contains the dict.
@@ -99,7 +113,11 @@ async def start_socket_mode() -> None:
     if _socket_client or not settings.slack_bot_token or not settings.slack_app_level_token:
         return
 
-    web_client = AsyncWebClient(token=settings.slack_bot_token)
+    # Ensure proper TLS root certs on macOS/custom Python installs
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+    web_client = AsyncWebClient(token=settings.slack_bot_token, ssl=ssl_context)
     _socket_client = SocketModeClient(
         app_token=settings.slack_app_level_token,
         web_client=web_client,

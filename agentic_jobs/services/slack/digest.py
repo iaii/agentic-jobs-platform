@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Iterable
 from uuid import UUID
@@ -12,6 +13,7 @@ def _format_score_chip(score: float) -> str:
 @dataclass(slots=True)
 class DigestRow:
     job_id: UUID
+    canonical_id: str
     title: str
     company: str
     location: str
@@ -37,6 +39,12 @@ def build_digest_blocks(rows: Iterable[DigestRow]) -> list[dict]:
                 },
             }
         )
+        button_payload = json.dumps(
+            {
+                "job_id": str(row.job_id),
+                "canonical_id": row.canonical_id,
+            }
+        )
         blocks.append(
             {
                 "type": "actions",
@@ -53,7 +61,7 @@ def build_digest_blocks(rows: Iterable[DigestRow]) -> list[dict]:
                         "action_id": "save_to_tracker",
                         "text": {"type": "plain_text", "text": "Save to Tracker"},
                         "style": "primary",
-                        "value": str(row.job_id),
+                        "value": button_payload,
                     },
                 ],
             }

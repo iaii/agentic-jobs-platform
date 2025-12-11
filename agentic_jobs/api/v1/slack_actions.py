@@ -49,9 +49,11 @@ async def slack_interactive_endpoint(
     try:
         response = await handle_interactive_request(payload, db, client)
     except SlackActionError as exc:
+        # Friendly message back to Slack; keep 200 so the client doesn't show a red error
         return {"text": str(exc)}
     except SlackError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        # Convert Slack network/API errors into a friendly ephemeral message to avoid Slack error badge
+        return {"text": f"Temporary Slack error: {str(exc)}"}
     finally:
         await client.aclose()
 
