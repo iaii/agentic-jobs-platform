@@ -355,105 +355,92 @@ agentic_jobs/
 
 ---
 
-# 🔄 MVPart 5 — Cover-Letter Drafting (LLM) + Organized Review (IN DEVELOPMENT)
+# ✅ MVPart 5 — Cover-Letter Drafting (LLM) + Organized Review
 
-**Status**: 🔄 **PARTIALLY IMPLEMENTED** (Database models and API stubs exist, LLM integration pending)
+**Status**: ✅ **FULLY IMPLEMENTED**
 
-## 🔄 Current Status
+## Current Capabilities
 
-1. 🔄 Stand up an **LLM runner** (local) for **Llama 3.1 8B Instruct** via **Ollama** or **vLLM** (planned)
-2. 🔄 Implement **DraftPackage** generation and a **slot template** prompt using the **Style Card** (planned)
-3. 🔄 In an Application thread, add button **Generate Cover Letter** → produce **CL v1** and post it **in the thread** and mirror a compact card to `#jobs-drafts` (planned)
-4. 🔄 Add **Request changes** → Slack modal with structured fields (short free-text allowed). Regenerate **only affected slots** (CL v2, v3, …). Pin the latest in the thread; store previous versions as artifacts (planned)
+1. Rich YAML “cover letter kit” stored at `agentic_jobs/profile/cover_letter_kit.yaml` with tone, structure, reasoning guidance, resume context, and project mapping rules. Loading handled via `services/llm/style_kit.py`.
+2. Prompt builder (`services/llm/prompt_builder.py`) assembles the full JSON payload: JD summary, profile, toolkit, feedback history, and slot hints.
+3. LLM runners support:
+   * `LLM_BACKEND=mock` — deterministic stub
+   * `LLM_BACKEND=qwen` — DashScope JSON API (`LLM_ENDPOINT_URL`, `LLM_API_KEY`)
+   * `LLM_BACKEND=ollama` — OpenAI-compatible Ollama Cloud (`LLM_ENDPOINT_URL=https://ollama.com/v1/chat/completions`, `LLM_API_KEY` or `OLLAMA_API_KEY`)
+   Each call enforces JSON output and retries on transient errors.
+4. Slack workflow:
+   * Saving a role posts tracker cards into `SLACK_JOBS_DRAFTS_CHANNEL` with **Generate draft** and **Finalize draft** buttons.
+   * Thread messages auto-save as feedback and trigger a regen (no modal).
+   * “Finalize draft” marks the application `Draft Ready`, posts a confirmation, and logs a system learning note.
+5. Artifacts: every draft is stored under `artifacts/APP-YYYY-NNN/cl-vN.md` and logged in `application_feedback` (`role=user|assistant|system`).
+6. `/api/v1/drafts/create` and `/api/v1/drafts/feedback` call the runner directly, returning the latest CL metadata.
 
-## ✅ Completed Infrastructure
-
-- ✅ Database models for `Artifact` and `Application` with cover letter support
-- ✅ API endpoint stubs in `drafts.py` and `feedback.py`
-- ✅ Slack integration infrastructure ready for cover letter workflow
-
-**Style Card (inject on every generation)**
-
-* Tone: compassionate, empathetic, confident, clear
-* Short sentences; 1–2 sentence paragraphs
-* **No em dashes; no semicolons**
-* Active voice; mirror **5–10%** of JD phrasing
-* No fabrication of facts; prefer one concrete metric
-* Personal themes **when relevant**: mental-health/brain modeling motivation; growth mindset with structured work habits
-
-**Slot Template (sections)**
-
-* Opener (your voice)
-* Why Company (2 bullets; JD-anchored)
-* Role Alignment (2–3 bullets; JD → your skills)
-* Impact Snapshot (2–3 bullets from: RAG eval, anomaly detection, exec reporting)
-* First 60–90 Days (3 realistic, JD-tailored goals)
-* Stack Summary (subset of your stack, tuned to JD)
-* Close + Signature
-
-**JSON input contract to the model (canonical)**
+## Prompt Contract (Summary)
 
 ```json
 {
+  "kit_version": "...",
   "app_id": "APP-2025-000123",
   "role": { "title": "...", "company": "...", "location": "..." },
   "job_url": "...",
-  "jd": {
-    "summary": "...",
-    "bullets": ["...","..."],
-    "phrases": ["..."],
-    "tone_sample": "..."
-  },
-  "profile": {
-    "identity": { "name": "Apoorva Chilukuri" },
-    "skills": [...],
-    "projects": [
-      {"name":"RAG Eval Harness","one_liner":"...","metric":"..."},
-      {"name":"Anomaly Detection","one_liner":"...","metric":"..."},
-      {"name":"Exec Reporting","one_liner":"...","metric":"..."}
-    ],
-    "stack": ["Java","Python","SQL","TypeScript/React (learning)", "REST/gRPC basics", "Linux/CLI", "Docker basics", "Git/GitHub", "JUnit/PyTest", "GitHub Actions/CI", "logging & metrics", "A/B testing", "JSON/HTTP APIs", "code review", "clear docs"]
-  },
-  "style_card": { "tone": ["compassionate","empathetic","confident","clear"], "rules": ["short sentences","no em dashes","no semicolons","active voice","mirror 5-10% JD","no fabrication"] },
+  "jd": { "summary": "...", "bullets": [...], "phrases": [...], "tone_sample": "..." },
+  "profile": { "identity": {...}, "links": {...}, "skills": [...], "projects": [...], "stack": [...] },
+  "project_card": {...},
+  "style_card": {...},
   "slots": {
-    "opener_hint": "Tie interest to product/mission; 1 fit signal",
-    "why_company": ["reason_1","reason_2"],
-    "role_alignment_targets": ["backend","APIs","SQL","AWS"],
-    "impact_picks": ["RAG eval","anomaly detection","exec reporting"],
-    "plan_hints": ["own a small service/API","instrumentation + metrics","a targeted experiment/readout"],
-    "stack_focus": ["Java","Python","SQL","REST/gRPC","Docker basics"]
+    "opener_hint": "...",
+    "why_company": [...],
+    "role_alignment_targets": [...],
+    "impact_picks": [...],
+    "plan_hints": [...],
+    "stack_focus": [...]
+  },
+  "feedback": {"latest_notes": [...], "history": [...]},
+  "learning_notes": [...],
+  "toolkit": {
+    "education": [...],
+    "skills_card": {...},
+    "experience_highlights": [...],
+    "leadership_highlights": [...],
+    "style_examples": [...],
+    "reasoning_guidance": [...],
+    "structure": {...}
   }
 }
 ```
 
-**Model output**
+Models must respond with:
 
 ```json
 {
   "version": "CL v1",
-  "cover_letter_md": "Dear Hiring Manager,\n...\nApoorva Chilukuri",
-  "sections_used": ["opener","why_company","role_alignment","impact","plan","stack","close"],
-  "provenance": { "why_company": ["jd.phrases[0]"], "role_alignment": ["profile.skills[*]"], "impact": ["profile.projects[*]"] }
+  "cover_letter_md": "Dear Hiring Manager, ... Best regards, Apoorva Chilukuri",
+  "sections_used": [...],
+  "provenance": {...}
 }
 ```
 
-**Slack UX rules**
+## Slack UX Rules
 
-* **All** CL versions live **inside the Application thread**.
-* `#jobs-drafts` contains a **compact card** per active draft that links back to the thread and provides Approve/Request-changes/Discard buttons.
-* Regens replace the **pinned** version and archive the previous as an artifact.
+* All CL activity stays in the application thread; tracker cards live in `SLACK_JOBS_DRAFTS_CHANNEL`.
+* Thread messages are persisted to `application_feedback`; regens respond inline.
+* Finalize pins the latest version, posts a learning summary, and flips status to `Draft Ready`.
 
-**You (human)**
+## Configuration Checklist
 
-* Provide 2–3 writing samples (done).
-* Confirm Llama 3.1 8B is installed and can be served locally.
-* Acceptance: For multiple active Applications, you can generate, request targeted edits, and approve CLs without any thread mixing; style rules are respected (no em dashes; no semicolons).
+| Setting | Description |
+| --- | --- |
+| `LLM_BACKEND` | `mock`, `qwen`, or `ollama` |
+| `LLM_MODEL_NAME` | Backend-specific model name |
+| `LLM_ENDPOINT_URL` | e.g., DashScope generation endpoint or `https://ollama.com/v1/chat/completions` |
+| `LLM_API_KEY` / `OLLAMA_API_KEY` | Provider token |
+| `LLM_TIMEOUT_SECONDS` | Increase if models are slow (default `60`) |
 
-**Tests**
+## Tests / Safety
 
-* Unit tests for prompt assembly (no PII leak).
-* Golden test: deterministic seed producing stable section structure.
-* Slack modal plumbing tests (action payloads route to correct application thread).
+* `tests/llm/` covers kit loading and prompt assembly.
+* Runner retries on transient HTTP errors and surfaces readable Slack errors when a backend is unavailable.
+* Every draft/version logged via artifacts + feedback rows for auditability.
 
 ---
 
@@ -511,4 +498,3 @@ agentic_jobs/
 * Keep **safety**: never automate behind logins; never submit forms; never store secrets in logs.
 * Keep **organization**: one **Application → one Slack thread**; mirror only small cards in `#jobs-drafts`.
 * Implement **tests per MVPart** before moving on.
-

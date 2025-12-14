@@ -1,8 +1,17 @@
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
 from agentic_jobs.main import app
+from agentic_jobs.config import settings
 from agentic_jobs.services.discovery.base import DiscoverySummary
+from agentic_jobs.services.drafts.generator import DraftResult
+from agentic_jobs.api.v1.drafts import get_draft_generator
 
+
+settings.slack_bot_token = None
+settings.slack_app_level_token = None
+settings.environment = "test"
 
 client = TestClient(app)
 
@@ -51,12 +60,50 @@ def test_discover_run_endpoint(monkeypatch) -> None:
 
 
 def test_drafts_create_stub() -> None:
-    response = client.post("/api/v1/drafts/create")
+    fake_id = uuid4()
+
+    class DummyGenerator:
+        async def generate(self, *args, **kwargs):
+            return DraftResult(
+                application_id=fake_id,
+                human_id="APP-2025-001",
+                version="CL v1",
+                cover_letter_md="Dear Hiring Manager,\n\nBody\n\nSincerely,\nApoorva",
+                artifact_uri="file:///tmp/cl.md",
+                payload={},
+            )
+
+    app.dependency_overrides[get_draft_generator] = lambda: DummyGenerator()
+    response = client.post(
+        "/api/v1/drafts/create",
+        json={"application_id": str(fake_id), "notes": [], "author": "tester"},
+    )
     assert response.status_code == 200
-    assert response.json() == {"message": "stub"}
+    data = response.json()
+    assert data["application_id"] == str(fake_id)
+    assert data["human_id"] == "APP-2025-001"
+    app.dependency_overrides.clear()
 
 
 def test_drafts_feedback_stub() -> None:
-    response = client.post("/api/v1/drafts/feedback")
+    fake_id = uuid4()
+
+    class DummyGenerator:
+        async def generate(self, *args, **kwargs):
+            return DraftResult(
+                application_id=fake_id,
+                human_id="APP-2025-001",
+                version="CL v2",
+                cover_letter_md="Update",
+                artifact_uri="file:///tmp/cl-v2.md",
+                payload={},
+            )
+
+    app.dependency_overrides[get_draft_generator] = lambda: DummyGenerator()
+    response = client.post(
+        "/api/v1/drafts/feedback",
+        json={"application_id": str(fake_id), "notes": ["More energy"], "author": "tester"},
+    )
     assert response.status_code == 200
-    assert response.json() == {"message": "stub"}
+    assert response.json()["version"] == "CL v2"
+    app.dependency_overrides.clear()

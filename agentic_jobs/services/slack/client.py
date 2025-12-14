@@ -118,6 +118,14 @@ class SlackClient:
             payload["blocks"] = blocks
         return await self._call("chat.postEphemeral", payload)
 
+    async def open_view(
+        self,
+        trigger_id: str,
+        view: Mapping[str, Any],
+    ) -> SlackResponse:
+        payload: MutableMapping[str, Any] = {"trigger_id": trigger_id, "view": view}
+        return await self._call("views.open", payload)
+
     async def list_conversations(
         self,
         *,

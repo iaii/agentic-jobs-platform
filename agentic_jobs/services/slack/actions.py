@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 from agentic_jobs.config import settings
 from agentic_jobs.core.enums import ApplicationStatus, DomainReviewStatus
 from agentic_jobs.db import models
+from agentic_jobs.services.drafts.generator import DraftGenerator, DraftGeneratorError
 from agentic_jobs.services.ranking import score_job
 from agentic_jobs.services.slack.client import SlackClient
+from agentic_jobs.services.llm.runner import LlmBackendError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -66,7 +68,56 @@ def _parse_action_job_context(value: str | None) -> tuple[UUID | None, str | Non
     return job_uuid, canonical_id
 
 
-def _build_thread_blocks(job: models.Job, score: float, rationale: str, app_human_id: str) -> list[dict[str, Any]]:
+def _parse_application_action_value(value: str | None) -> UUID:
+    if not value:
+        raise SlackActionError("Missing application identifier.")
+    try:
+        data = json.loads(value)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise SlackActionError("Invalid application identifier payload.") from exc
+    app_id = data.get("application_id")
+    if not app_id:
+        raise SlackActionError("Application identifier missing.")
+    try:
+        return UUID(app_id)
+    except (TypeError, ValueError) as exc:
+        raise SlackActionError("Malformed application identifier.") from exc
+
+
+def _encode_action_value(payload: dict[str, Any]) -> str:
+    return json.dumps(payload)
+
+
+def _build_control_block(application_id: UUID) -> dict[str, Any]:
+    payload = _encode_action_value({"application_id": str(application_id)})
+    return {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Generate draft"},
+                "action_id": "drafts_generate",
+                "value": payload,
+                "style": "primary",
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Finalize draft"},
+                "action_id": "drafts_finalize",
+                "value": payload,
+                "style": "danger",
+            },
+        ],
+    }
+
+
+def _build_thread_blocks(
+    job: models.Job,
+    score: float,
+    rationale: str,
+    app_human_id: str,
+    application_id: UUID,
+) -> list[dict[str, Any]]:
     text = (
         f"*{job.title}* · {job.company_name} · {job.location}\n"
         f"<{job.url}|Open job description>\n"
@@ -75,7 +126,10 @@ def _build_thread_blocks(job: models.Job, score: float, rationale: str, app_huma
         f"*Status:* `Queued`\n"
         f"*Application:* `{app_human_id}`"
     )
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        _build_control_block(application_id),
+    ]
 
 
 def _next_human_id(session: Session) -> str:
@@ -148,7 +202,13 @@ async def handle_save_to_tracker(
     if not source_channel_id or not source_thread_ts:
         raise SlackActionError("Missing Slack channel or thread metadata.")
 
-    tracker_blocks = _build_thread_blocks(job, score_result.score, score_result.rationale, human_id)
+    tracker_blocks = _build_thread_blocks(
+        job,
+        score_result.score,
+        score_result.rationale,
+        human_id,
+        app.id,
+    )
     target_channel = settings.slack_jobs_drafts_channel
     thread_anchor_ts: str | None = None
 
@@ -162,14 +222,12 @@ async def handle_save_to_tracker(
             target_channel = response.data.get("channel", target_channel)
             parent_ts = response.data.get("ts")
             if parent_ts:
-                thread_response = await slack_client.post_thread_message(
+                await slack_client.post_thread_message(
                     channel=target_channel,
                     thread_ts=parent_ts,
                     text=f"Cover-letter workspace for `{human_id}`. Drop drafts in this thread.",
                 )
-                thread_anchor_ts = thread_response.data.get("ts") or parent_ts
-            else:
-                thread_anchor_ts = parent_ts or source_thread_ts
+            thread_anchor_ts = parent_ts or source_thread_ts
         except Exception:  # noqa: BLE001
             LOGGER.exception("Failed to post tracker card in drafts channel %s", target_channel)
             target_channel = None
@@ -178,12 +236,12 @@ async def handle_save_to_tracker(
         # Fall back to replying in the original thread if drafts channel unavailable
         target_channel = source_channel_id
         try:
-            response = await slack_client.post_thread_message(
+            await slack_client.post_thread_message(
                 channel=target_channel,
                 thread_ts=source_thread_ts,
                 blocks=tracker_blocks,
             )
-            thread_anchor_ts = response.data.get("ts") or source_thread_ts
+            thread_anchor_ts = source_thread_ts
         except Exception:  # noqa: BLE001
             thread_anchor_ts = source_thread_ts
 
@@ -317,6 +375,38 @@ async def handle_needs_review_reject(
     return {"text": f"Muted `{domain_root}` for {mute_days} days."}
 
 
+async def handle_drafts_generate_action(
+    payload: dict[str, Any],
+    session: Session,
+    slack_client: SlackClient,
+) -> dict[str, Any]:
+    action = (payload.get("actions") or [])[0]
+    application_id = _parse_application_action_value(action.get("value"))
+    generator = DraftGenerator(session, slack_client)
+    author = _extract_user_name(payload)
+    try:
+        await generator.generate(application_id, notes=[], author=author, post_to_slack=True)
+    except (DraftGeneratorError, LlmBackendError) as exc:
+        raise SlackActionError(str(exc)) from exc
+    return {"text": f"Generating cover-letter draft for `{author}`."}
+
+
+async def handle_drafts_finalize_action(
+    payload: dict[str, Any],
+    session: Session,
+    slack_client: SlackClient,
+) -> dict[str, Any]:
+    action = (payload.get("actions") or [])[0]
+    application_id = _parse_application_action_value(action.get("value"))
+    generator = DraftGenerator(session, slack_client)
+    author = _extract_user_name(payload)
+    try:
+        summary = await generator.finalize(application_id, author=author)
+    except DraftGeneratorError as exc:
+        raise SlackActionError(str(exc)) from exc
+    return {"text": f"Marked draft as ready. {summary}"}
+
+
 async def handle_interactive_request(
     payload: dict[str, Any],
     session: Session,
@@ -337,5 +427,9 @@ async def handle_interactive_request(
         return await handle_needs_review_approve(payload, session, slack_client)
     if action_id == "needs_review_reject":
         return await handle_needs_review_reject(payload, session, slack_client)
+    if action_id == "drafts_generate":
+        return await handle_drafts_generate_action(payload, session, slack_client)
+    if action_id == "drafts_finalize":
+        return await handle_drafts_finalize_action(payload, session, slack_client)
 
     raise SlackActionError(f"Unknown action: {action_id}")
