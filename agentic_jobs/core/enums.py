@@ -40,6 +40,12 @@ class ArtifactType(StrEnum):
     CONFIRMATION = "confirmation"
 
 
+class FeedbackRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
 class DomainReviewStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"

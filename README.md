@@ -31,6 +31,12 @@ This repo hosts the FastAPI + SQLAlchemy service that powers the complete Agenti
 - **Human-readable application IDs** (APP-YYYY-NNN format) with deterministic job scores recorded alongside each application
 - **Per-application Slack threads** anchored in the drafts channel, ready for cover-letter collaboration
 
+### ✍️ **Cover Letter Drafting (LLM)**
+- **Thread-native workflow**: every application has a dedicated Slack thread. Press “Generate draft” to create a new version; drop feedback directly in the thread to trigger an automatic regen; use “Finalize draft” to lock it.
+- **Profile-aware kit**: prompt builder injects your profile snapshot, projects, and style/tone preferences on every call.
+- **Swappable LLM runners**: configure `LLM_BACKEND=qwen` (DashScope) or `LLM_BACKEND=ollama` (OpenAI-compatible) plus `LLM_ENDPOINT_URL`, `LLM_MODEL_NAME`, and `LLM_API_KEY`/`OLLAMA_API_KEY`.
+- **Artifact + feedback history**: every version is saved under `artifacts/APP-YYYY-NNN/cl-vN.md` and logged in `application_feedback` so you always have the full revision trail.
+
 ### 🔄 **Automation & Scheduling**
 - **3-hour discovery cycles** with configurable time windows (06:00-23:00 PT)
 - **Automatic job ingestion** from multiple sources
@@ -48,8 +54,8 @@ agentic_jobs/
 │   ├── applications.py           # Application management
 │   ├── slack_actions.py          # Slack interactive components
 │   ├── trust.py                  # Trust evaluation endpoints
-│   ├── drafts.py                 # Cover letter generation (stub)
-│   └── feedback.py               # Feedback system (stub)
+│   ├── drafts.py                 # Cover letter generation API
+│   └── feedback.py               # Draft feedback + regen API
 ├── config.py                     # Pydantic settings (env-driven)
 ├── core/enums.py                 # Application enums and constants
 ├── db/
@@ -71,7 +77,8 @@ agentic_jobs/
 │   ├── ranking/scorer.py         # Job scoring system
 │   ├── sources/normalize.py      # HTML normalization + hashing
 │   ├── trust/evaluator.py        # Trust scoring system
-│   └── scheduler/cron.py         # Scheduled task management
+│   ├── scheduler/cron.py         # Scheduled task management
+│   └── drafts/                   # LLM prompt builder + generator
 └── schemas/                      # Pydantic schemas (future)
 tests/
 ├── discovery/                    # Discovery system tests
@@ -222,6 +229,16 @@ Job records, sources, and trust events are persisted in Postgres. If an adapter 
 | `SLACK_SIGNING_SECRET` | Signing Secret for request verification | ✅ |
 | `SLACK_JOBS_FEED_CHANNEL` | Channel for job digests | ✅ |
 | `SLACK_JOBS_DRAFTS_CHANNEL` | Channel for cover letter drafts | ✅ |
+
+### LLM Drafting
+| Variable | Description | Example |
+| --- | --- | --- |
+| `LLM_BACKEND` | `qwen` (DashScope) or `ollama` (OpenAI-compatible) | `ollama` |
+| `LLM_MODEL_NAME` | Backend-specific model name | `Qwen3-235B-A22B`, `llama3.1:8b-instruct` |
+| `LLM_ENDPOINT_URL` | Full inference URL | `https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation` / `https://ollama.com/v1/chat/completions` |
+| `LLM_API_KEY` | Primary API key (DashScope or other OpenAI-style providers) | `sk-...` |
+| `OLLAMA_API_KEY` | Optional fallback key for Ollama Cloud | `ollama-secret` |
+| `LLM_TIMEOUT_SECONDS` | Request timeout in seconds | `60` |
 
 ### Scheduler Settings
 | Variable | Description | Default |

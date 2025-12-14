@@ -18,6 +18,7 @@ from agentic_jobs.config import settings
 from agentic_jobs.db.session import SessionLocal
 from agentic_jobs.services.slack.actions import handle_interactive_request
 from agentic_jobs.services.slack.client import SlackClient, SlackError
+from agentic_jobs.services.slack.events import handle_slack_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -68,7 +69,21 @@ async def _process_interaction(payload: dict[str, Any]) -> None:
         session.close()
 
 
+async def _process_event(payload: dict[str, Any]) -> None:
+    session = SessionLocal()
+    slack_client = SlackClient(settings.slack_bot_token)
+    try:
+        await handle_slack_event(payload, session, slack_client)
+    finally:
+        await slack_client.aclose()
+        session.close()
+
+
 async def _handle_socket_request(client: SocketModeClient, req: SocketModeRequest) -> None:
+    if req.type == "events_api":
+        await client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
+        asyncio.create_task(_process_event(req.payload))
+        return
     if req.type != "interactive":
         await client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
         return
@@ -80,7 +95,7 @@ async def _handle_socket_request(client: SocketModeClient, req: SocketModeReques
             payload={
                 "response_type": "ephemeral",
                 "replace_original": False,
-                "text": "Saving to tracker...",
+                "text": "Working on it...",
             },
         )
     )

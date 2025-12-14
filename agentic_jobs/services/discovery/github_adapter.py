@@ -22,6 +22,19 @@ def _first_non_empty(*values: Any, default: str | None = None) -> str | None:
             for item in value:
                 if isinstance(item, str) and item.strip():
                     return item.strip()
+                if isinstance(item, dict):
+                    candidate = _first_non_empty(item, default=None)
+                    if candidate:
+                        return candidate
+        if isinstance(value, dict):
+            for key in ("company", "name", "title", "organization"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip()
+                if isinstance(candidate, list) or isinstance(candidate, dict):
+                    nested = _first_non_empty(candidate, default=None)
+                    if nested:
+                        return nested
     return default
 
 

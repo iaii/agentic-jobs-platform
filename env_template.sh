@@ -26,6 +26,11 @@ export SLACK_SIGNING_SECRET="your-actual-signing-secret-here"
 
 export SLACK_JOBS_FEED_CHANNEL="#jobs-feed"
 export SLACK_JOBS_DRAFTS_CHANNEL="#job-drafts"
+export LLM_BACKEND="mock"
+export LLM_MODEL_NAME="llama3.1:8b-instruct"
+export LLM_TIMEOUT_SECONDS="60"
+export LLM_ENDPOINT_URL=""
+export LLM_API_KEY=""
 
 # =================================
 # DATABASE CONFIGURATION
@@ -42,4 +47,3 @@ export DEBUG="true"
 
 echo "✅ Environment variables loaded!"
 echo "Run: python3 test_slack_config.py to verify your configuration"
-

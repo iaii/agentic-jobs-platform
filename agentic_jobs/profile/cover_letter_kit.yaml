@@ -1,0 +1,266 @@
+meta_guidance:
+  goal: >
+    Use this YAML as context to write cover letters that add new information beyond my resume.
+    Do not restate my resume line by line. Instead, explain how my experiences map to the specific role,
+    what kind of engineer I am, and why I care about the product and problem space.
+  use_resume_like:
+    - "Ground truth for dates, titles, and basic responsibilities."
+    - "Source of hard facts, but not something to quote directly."
+  avoid_in_cover_letter:
+    - "Copying resume bullets or listing every tech stack used."
+    - "Recounting my internships exactly as written in the resume."
+    - "Reading like a formatted resume paragraph."
+
+profile:
+  bio: "Recent computer science graduate who likes building reliable backend and data heavy systems that real people actually use."
+  identity_notes:
+    - "I am early career, but I care about craft and about how users experience what I build."
+    - "I am comfortable in messy, real world data and I like making things more observable and predictable."
+  what_cover_letter_should_add:
+    - "Why this particular company and product resonate with me."
+    - "How I think about debugging, reliability, and user impact."
+    - "How I like to work with other engineers, PMs, and non technical partners."
+    - "What I want to learn on this team and how my existing habits will help."
+
+interests_and_domains:
+  core_interests:
+    - "Backend engineering and data workflows that support real users."
+    - "Evaluation and reliability for AI and LLM powered features."
+    - "Productivity and workflow tools, especially things that live where people already work like Slack."
+    - "Consumer experiences tied to fashion and discovery."
+    - "Fitness and wellness products that help people change behavior."
+  domain_mapping_examples:
+    - "If the company is in search, knowledge, ads, or any high read system, lean on my RAG evaluation work and data quality mindset."
+    - "If the company is in productivity, workflows, or internal tools, lean on my Slack based job copilot and reporting work."
+    - "If the company is in health or fitness, lean on my fitness companion project and my genuine personal interest in training and nutrition."
+    - "If the company is in mapping, robotics, or hardware linked systems, lean on my anomaly detection work on physical device signals."
+
+work_style:
+  how_i_work_day_to_day:
+    - "I break work into small, reviewable pieces and ask clarifying questions early."
+    - "I instrument what I build, so future debugging is faster and less guessy."
+    - "I like to write short, practical notes or runbooks that explain how to use or operate a system."
+    - "I am polite but direct in code review and I appreciate clear feedback in return."
+  what_i_tend_to_do_without_being_told:
+    - "Add basic request validation and error handling around new endpoints."
+    - "Log enough context so production issues can be traced later."
+    - "Check how a change will affect other teams or users, not just my own API or view."
+    - "Clean up small papercuts I see in documentation or scripts while I am there."
+  what_i_value_in_a_team:
+    - "People who care about code quality, but also ship regularly."
+    - "Mentors who explain the why behind design decisions, not just the what."
+    - "Psychological safety to ask questions, admit confusion, and show half baked ideas."
+
+technical_shape:
+  high_level:
+    description: >
+      Use this section to understand what kinds of problems I have actually tackled,
+      so you can argue convincingly that I can grow into similar systems even if the company stack differs.
+    themes:
+      - "Data quality and anomaly detection on real device data."
+      - "Evaluation and iteration for RAG and LLM powered systems."
+      - "Backend and workflow automation with Slack and HTTP APIs."
+      - "Relational data modeling and correctness."
+  do_not:
+    - "List every tool in a cover letter."
+    - "Pretend I am an expert in any tool I have only touched lightly."
+
+experience_highlights_beyond_resume:
+  jci_rag_eval:
+    role_context: "RAG evaluation and chunking experiments for a customer facing chatbot at Johnson Controls."
+    how_i_thought_about_it:
+      - "The core problem was that people were saying the chatbot looked fine based on spot checks, which is hard to scale."
+      - "I wanted a way to compare changes side by side on a fixed query set so we had an objective signal."
+    what_i_actually_did:
+      - "Defined a small but representative gold set of questions and expected answer snippets."
+      - "Computed embeddings and cosine similarity scores so we could see how close answers stayed to the ground truth after a change."
+      - "Experimented with different chunking strategies and recorded how they affected both relevance and hallucination risk."
+    how_this_maps_to_other_roles:
+      - "Anywhere there is an AI or search feature that people currently judge by feel, I can help move us toward measurable evaluation."
+      - "I bring a habit of treating quality as a pipeline problem, not just a model problem."
+
+  jci_anomaly_detection:
+    role_context: "Anomaly detection exploration on roughly three million minute level events from Z Wave devices."
+    how_i_thought_about_it:
+      - "I did not trust raw metrics alone, so I started with distributions and time based patterns to see what looked off by eye."
+      - "I tried to understand which anomalies truly mattered for customers versus which were just noisy but harmless."
+    what_i_actually_did:
+      - "Engineered basic features around time, frequency, and event patterns that could feed into models or rules."
+      - "Wrote a short design note suggesting an HMM based approach and the tradeoffs compared to simpler thresholds."
+      - "Summarized findings in a way leadership could follow without reading code or stats papers."
+    how_this_maps_to_other_roles:
+      - "Any system that streams events or metrics can benefit from the way I combine exploratory analysis with clear written recommendations."
+      - "This is relevant to monitoring, alerting, fraud detection, abuse detection, and any reliability work."
+
+  jci_reporting:
+    role_context: "Data quality and reporting for home device data and leadership dashboards."
+    how_i_thought_about_it:
+      - "The bigger issue was trust. People had stopped trusting some dashboards because the numbers did not always line up."
+      - "I treated this as both a data modeling problem and a communication problem."
+    what_i_actually_did:
+      - "Tracked down inconsistencies in device payloads and reporting logic rather than just patching symptoms."
+      - "Standardized a JSON driven template for Power BI so multiple teams could produce similar dashboards without starting from scratch."
+      - "Explained how the new templates worked and where they would need maintenance."
+    how_this_maps_to_other_roles:
+      - "Shows I care about correctness and repeatability in any metrics or analytics surface."
+      - "Useful for internal tools, analytics platforms, or any team that surfaces numbers to decision makers."
+
+  agentic_job_copilot:
+    display_name: "Agentic Job Hunt Copilot, Slack based workflow"
+    role_context: "Personal project to turn chaotic job search tabs into a structured, Slack first workflow."
+    how_i_thought_about_it:
+      - "I was tired of bouncing between Greenhouse, company sites, and tracking sheets."
+      - "I wanted everything in one place where I already spend time, which is Slack."
+    what_i_actually_did:
+      - "Designed a backend that crawls job sources on a schedule, normalizes the data, and stores it in Postgres with clear provenance."
+      - "Implemented a Slack experience where I get a digest of roles, can save interesting ones, and have application records created automatically."
+      - "Used an LLM only for parsing and ranking hints, while keeping the core pipeline deterministic and debuggable."
+      - "Instrumented the workflow with logging and basic error handling so when a source fails, I can tell why."
+    how_this_maps_to_other_roles:
+      - "Relevant for any company doing workflow automation, SaaS dashboards, or internal tools that integrate multiple APIs."
+      - "Shows that I think about the full experience: ingestion, processing, and how it feels where users live."
+
+  patient_records_app:
+    display_name: "Patient Medical Records Application"
+    role_context: "Course project that mimicked a small hospital record system with a Streamlit front end and SQL backend."
+    how_i_thought_about_it:
+      - "I wanted to design the data model so it would not paint us into a corner if we added more entities later."
+      - "I tried to imagine how non technical staff would actually use the interface."
+    what_i_actually_did:
+      - "Designed a normalized schema with clear relationships between patients, doctors, appointments, and related data."
+      - "Built Streamlit flows for common tasks and added basic validation so users could not easily put the database into a bad state."
+      - "Used views, indexes, and careful query structure to keep common queries fast and safe."
+    how_this_maps_to_other_roles:
+      - "Good base for any product that manages structured entities and workflows, such as admin dashboards or CRUD heavy SaaS."
+
+  meta_mood_app:
+    display_name: "MetaU iOS Mood App"
+    role_context: "Meta University project where I built a mood sensing app in Swift with an external sentiment API."
+    how_i_thought_about_it:
+      - "I wanted the app to feel playful and smooth, not like a bare bones demo."
+      - "I paid attention to how animation and transitions affect how people perceive quality."
+    what_i_actually_did:
+      - "Built multiple screens that send text to an external sentiment API, interpret the response, and suggest tailored activities."
+      - "Added custom animations and transitions to make the experience feel cohesive."
+    how_this_maps_to_other_roles:
+      - "Shows that I care about experience and polish, not only backend logic."
+      - "Useful when applying to teams that value user experience even if I am mostly doing backend work."
+
+projects_and_themes:
+  # fashion_experience_tool:
+  #   name: "Meshy Outfit Previewer"
+  #   what_it_is: >
+  #     Personal experiment to let users preview outfits visually using Meshy generated assets in a React or Next.js flow.
+  #   why_it_matters:
+  #     - "Shows interest in fashion, discovery, and making online shopping feel more tangible."
+  #     - "Relevant to companies in e commerce, fashion tech, or digital try on spaces."
+  #   how_to_reference_it:
+  #     - "Focus on how I thought about state management, load performance, and user flow, not just that I used Meshy."
+
+  # fitness_companion:
+  #   name: "Fitness and Nutrition Companion"
+  #   what_it_is: >
+  #     Simple tool that ties workouts and meals to structured data models, so progress and habits are easier to track.
+  #   why_it_matters:
+  #     - "Shows genuine personal interest in fitness and wellness."
+  #     - "Relevant for health tech, wearables, behavior change, and analytics around training."
+  #   how_to_reference_it:
+  #     - "Focus on how I connected data models to user goals and how this mirrors product work like WHOOP or similar companies."
+
+  slack_job_copilot:
+    name: "Agentic Job Hunt Copilot"
+    what_it_is: >
+      Slack based job search orchestrator that ingests postings, ranks them, and manages applications inside Slack.
+    why_it_matters:
+      - "Good match for companies that integrate with Slack or build internal tools."
+      - "Shows full stack thinking and comfort with async APIs, schedulers, and LLM assist."
+    how_to_reference_it:
+      - "Highlight how it unifies ingestion, ranking, and Slack UX with deterministic pipelines plus optional LLM hints."
+
+projects:
+  # - key: "fashion_experience_tool"
+  #   name: "Meshy Outfit Previewer"
+  #   short_name: "Meshy outfit previewer"
+  #   summary: >
+  #     Personal experiment to let users preview outfits visually using Meshy generated assets in a React or Next.js flow.
+  #     Focuses on responsive state management and performance for media heavy content.
+  #   talking_points:
+  #     - "Explores how to keep media heavy UIs responsive with skeletons and careful loading."
+  #     - "Shows genuine interest in fashion discovery and personalized shopping."
+  #   themes: ["visual", "consumer", "personalization"]
+  # - key: "fitness_companion"
+  #   name: "Fitness and Nutrition Companion"
+  #   short_name: "fitness companion"
+  #   summary: >
+  #     Simple tool that ties workouts and meals to structured data models with REST style endpoints and lightweight UIs.
+  #   talking_points:
+  #     - "Demonstrates schema design for habits plus empathy for wellness products."
+  #     - "Relevant for health tech, wearables, and behavior change."
+  #   themes: ["health", "wellness"]
+  - key: "slack_job_copilot"
+    name: "Agentic Job Hunt Copilot"
+    short_name: "Slack job copilot"
+    summary: >
+      Slack based job search orchestrator that ingests postings, ranks them, and manages applications inside Slack with deterministic pipelines plus LLM hints.
+    talking_points:
+      - "Covers async ingestion, deterministic scoring, and a Slack-first UX."
+      - "Ideal for workflow automation and internal tools teams."
+    themes: ["automation", "productivity", "internal_tools"]
+
+tone:
+  overall: ["Kind", "direct", "enthusiastic", "thoughtful", "grounded"]
+  voice: ["First person", "Conversational but professional", "Short clear sentences"]
+  dislikes:
+    - "No em dashes"
+    - "No semicolons"
+    - "No over the top hype language"
+    - "No stories from childhood or very early life"
+  likes:
+    - "Specific product mentions with one sharp observation."
+    - "Reasoning like: this role is a fit because it combines X, Y, and Z from my background."
+    - "Brief, concrete examples instead of vague adjectives."
+
+reasoning_guidance:
+  how_to_connect_me_to_a_job:
+    - "Identify 3 to 5 core themes from the job description. For example: backend APIs, data pipelines, observability, internal tools, AI, safety, search, mapping, hardware integration."
+    - "For each theme, pick one or two items from experience_highlights_beyond_resume or projects_and_themes and explain how they relate."
+    - "Use plain reasoning language such as: This is similar in spirit to what I did on X, where I had to Y."
+  if_there_is_a_gap:
+    - "Do not invent experience."
+    - "Instead, say: I have done A and B, which are related in these ways, and I am excited to learn C."
+  target_paragraph_types:
+    opener:
+      purpose: >
+        Say why this company and role interest me in 2 to 4 sentences.
+        Mention one product, mission, or user group in a concrete way.
+    impact_highlights:
+      purpose: >
+        Add 2 to 4 bullets that show how I have operated in similar situations.
+        These should explain what changed because of my work, not just what tech I used.
+    fit_section:
+      purpose: >
+        Write a short paragraph or 3 bullets that use explicit reasoning like:
+        This role fits me because it combines my experience in X, my interest in Y, and my habit of Z.
+    60_90_day_section:
+      purpose: >
+        Describe how I would ramp and add value in a new grad realistic way.
+        Keep it concrete: learn from mentor, ship one small improvement, add one useful piece of observability, support one real question.
+    stack_and_culture:
+      purpose: >
+        Show that I understand their stack or domain themes and that my way of working fits their culture if they describe it.
+        Keep it honest and specific.
+
+structure:
+  greeting: "Dear Hiring Manager,"
+  labels:
+    impact_section: "Impact highlights"
+    fit_section: "Why this role fits"
+    plan_section: "First 60 to 90 days"
+    stack_section: "Stack fit and how I work"
+  close:
+    guidance: >
+      End with one or two sentences that reaffirm genuine interest in the role,
+      mention that I want to grow with the team, and thank them for their time.
+  signoff:
+    text: "Best regards,"
+    name: "Apoorva Chilukuri"

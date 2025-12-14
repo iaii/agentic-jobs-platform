@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, HttpUrl
 from agentic_jobs.core.enums import (
     ApplicationStatus,
     ArtifactType,
+    FeedbackRole,
     JobSourceType,
     SubmissionMode,
     TrustVerdict,
@@ -79,6 +80,15 @@ class ArtifactModel(BaseModel):
     application_id: UUID
     type: ArtifactType
     uri: HttpUrl
+    created_at: datetime
+
+
+class ApplicationFeedbackModel(BaseModel):
+    id: UUID
+    application_id: UUID
+    role: FeedbackRole
+    author: Optional[str] = None
+    text: str
     created_at: datetime
 
 

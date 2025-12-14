@@ -13,6 +13,7 @@ from agentic_jobs.core.enums import (
     ApplicationStatus,
     ArtifactType,
     DomainReviewStatus,
+    FeedbackRole,
     JobSourceType,
     SubmissionMode,
     TrustVerdict,
@@ -156,6 +157,9 @@ class Application(Base):
     artifacts: Mapped[List["Artifact"]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
+    feedback: Mapped[List["ApplicationFeedback"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         UniqueConstraint("canonical_job_id", name="uq_applications_canonical_job_id"),
@@ -180,6 +184,27 @@ class Artifact(Base):
     )
 
     application: Mapped[Application] = relationship(back_populates="artifacts")
+
+
+class ApplicationFeedback(Base):
+    __tablename__ = "application_feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id"), nullable=False, index=True
+    )
+    role: Mapped[FeedbackRole] = mapped_column(
+        SAEnum(FeedbackRole, name="feedback_role", native_enum=False), nullable=False
+    )
+    author: Mapped[Optional[str]] = mapped_column(String(255))
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+    application: Mapped[Application] = relationship(back_populates="feedback")
 
 
 class DigestLog(Base):
