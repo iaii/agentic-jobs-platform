@@ -16,7 +16,7 @@ from agentic_jobs.services.slack.digest import DigestRow, NeedsReviewCard
 def collect_digest_rows(
     session: Session,
     *,
-    since: datetime,
+    since: datetime | None = None,
     digest_day: date,
     limit: int,
 ) -> list[DigestRow]:
@@ -27,13 +27,11 @@ def collect_digest_rows(
         ).scalars()
     }
 
-    jobs = list(
-        session.execute(
-            select(models.Job)
-            .where(models.Job.scraped_at >= since)
-            .order_by(models.Job.scraped_at.desc())
-        ).scalars()
-    )
+    stmt = select(models.Job).order_by(models.Job.scraped_at.desc())
+    if since is not None:
+        stmt = stmt.where(models.Job.scraped_at > since)
+
+    jobs = list(session.execute(stmt).scalars())
 
     rows: list[DigestRow] = []
     for job in jobs:
@@ -166,3 +164,13 @@ def collect_needs_review_candidates(
 
     session.commit()
     return candidates
+
+
+def last_posted_job_scraped_at(session: Session) -> datetime | None:
+    stmt = (
+        select(models.Job.scraped_at)
+        .join(models.DigestLog, models.DigestLog.job_id == models.Job.id)
+        .order_by(models.Job.scraped_at.desc())
+        .limit(1)
+    )
+    return session.execute(stmt).scalar_one_or_none()

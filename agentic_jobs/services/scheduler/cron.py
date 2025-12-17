@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from agentic_jobs.config import settings
 from agentic_jobs.db.session import SessionLocal
+from agentic_jobs.services.discovery.config import get_job_filter_config
 from agentic_jobs.services.discovery.github_adapter import GithubPositionsAdapter
 from agentic_jobs.services.discovery.greenhouse_adapter import GreenhouseAdapter
 from agentic_jobs.services.discovery.orchestrator import run_discovery
@@ -17,6 +18,7 @@ from agentic_jobs.services.slack.digest import build_digest_blocks, build_needs_
 from agentic_jobs.services.slack.workflows import (
     collect_digest_rows,
     collect_needs_review_candidates,
+    last_posted_job_scraped_at,
     record_digest_post,
 )
 
@@ -56,29 +58,33 @@ def _next_run_time(now_pt: datetime) -> datetime:
 async def _run_discovery_cycle(run_started: datetime) -> None:
     async with AsyncExitStack() as stack:
         adapters: list = []
-        if settings.enable_greenhouse:
+        filter_config = get_job_filter_config(settings.job_filter_config_path)
+
+        if settings.enable_greenhouse and filter_config.adapters.get("greenhouse", True):
             greenhouse = await stack.enter_async_context(GreenhouseAdapter(settings))
             adapters.append(greenhouse)
 
-        simplify = await stack.enter_async_context(
-            GithubPositionsAdapter(
-                settings,
-                source_name="simplify",
-                slug="simplify",
-                data_urls=settings.simplify_positions_url_list,
+        if filter_config.adapters.get("simplify", True):
+            simplify = await stack.enter_async_context(
+                GithubPositionsAdapter(
+                    settings,
+                    source_name="simplify",
+                    slug="simplify",
+                    data_urls=settings.simplify_positions_url_list,
+                )
             )
-        )
-        adapters.append(simplify)
+            adapters.append(simplify)
 
-        new_grad = await stack.enter_async_context(
-            GithubPositionsAdapter(
-                settings,
-                source_name="newgrad2026",
-                slug="newgrad2026",
-                data_urls=settings.new_grad_positions_url_list,
+        if filter_config.adapters.get("newgrad2026", True):
+            new_grad = await stack.enter_async_context(
+                GithubPositionsAdapter(
+                    settings,
+                    source_name="newgrad2026",
+                    slug="newgrad2026",
+                    data_urls=settings.new_grad_positions_url_list,
+                )
             )
-        )
-        adapters.append(new_grad)
+            adapters.append(new_grad)
 
         session = SessionLocal()
         try:
@@ -97,10 +103,11 @@ async def _run_discovery_cycle(run_started: datetime) -> None:
 
 async def _post_digest_and_reviews(session, run_started: datetime) -> None:
     digest_day = datetime.now(tz=PT_ZONE).date()
+    last_posted_at = last_posted_job_scraped_at(session)
 
     digest_rows = collect_digest_rows(
         session,
-        since=run_started,
+        since=last_posted_at,
         digest_day=digest_day,
         limit=settings.digest_batch_size,
     )

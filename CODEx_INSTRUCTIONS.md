@@ -12,6 +12,29 @@
 
 ---
 
+# ✅ MVPart 7 — Master Tracker + Configurable Discovery Filters (IN PROGRESS)
+
+**Highlights shipped so far**
+
+1. **Slack Master Tracker overhaul**
+   - Applications now carry a dedicated `stage` enum (with Alembic migrations) so lifecycle tracking is decoupled from status codes.
+   - Saving to the tracker snapshots the JD, spins up a cover-letter workspace thread, and refreshes a pinned tracker message instead of spamming Slack.
+   - Tracker UI renders as paginated Slack messages (25 rows per page) with Manage modals exposing JD text, finalized cover letters, and quick stage changes.
+   - Stage changes trigger archive summaries (Rejected/Accepted) in a separate channel and refresh the tracker asynchronously to avoid modal glitches.
+
+2. **Cover-letter workflow polish**
+   - Generate/finalize actions advance stages (Interested → CL In Progress → CL Finalized) automatically so the tracker mirrors drafting progress.
+   - Thread feedback auto-regens refresh the tracker silently to keep the workspace noise-free.
+
+3. **Configurable job intake filters**
+   - Added `config/job_filters.yaml` + `JOB_FILTER_CONFIG_PATH` so users can toggle adapters (Greenhouse, Simplify, NewGrad2026) and edit include/exclude keywords without touching code.
+   - Discovery filters titles before ingest so only SWE / new-grad friendly roles reach Slack.
+
+4. **Digest card refresh**
+   - Slack cards now read `Company` → `Role · Location` → `Score/Rationale`, making scans in `#jobs-feed` easier.
+
+> MVPart7 keeps the Slack tracker actionable while giving every user a simple way to tune job sources + filters.
+
 ## Global Product Specs (canonical across MVPs)
 
 ### Slack Channels (fixed)

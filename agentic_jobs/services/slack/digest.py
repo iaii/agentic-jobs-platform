@@ -25,17 +25,18 @@ class DigestRow:
 def build_digest_blocks(rows: Iterable[DigestRow]) -> list[dict]:
     blocks: list[dict] = []
     for idx, row in enumerate(rows, start=1):
+        text_lines = [
+            f"*{idx}. {row.company}*",
+            f"{row.title} · {row.location}",
+            f"{_format_score_chip(row.score)} — _{row.rationale}_",
+        ]
         blocks.append(
             {
                 "type": "section",
                 "block_id": f"digest_row_{row.job_id}",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (
-                        f"*{idx}. {row.title}* · {row.company} · {row.location}\n"
-                        f"{_format_score_chip(row.score)}\n"
-                        f"_{row.rationale}_"
-                    ),
+                    "text": "\n".join(text_lines),
                 },
             }
         )

@@ -31,16 +31,16 @@ def _build_adapter(test_settings, transport, *, source_name: str, slug: str, url
             "simplify",
             "simplify",
             [
-                "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json",
-                "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/src/data/positions.json",
+                "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/data/positions.json",
+                "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/src/data/positions.json",
             ],
         ),
         (
             "newgrad2026",
             "newgrad2026",
             [
-                "https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/data/positions.json",
-                "https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/src/data/positions.json",
+                "https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/data/positions.json",
+                "https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/src/data/positions.json",
             ],
         ),
     ],
@@ -65,7 +65,7 @@ def test_github_adapter_infers_company_from_url(test_settings, github_transport_
     import httpx
 
     overrides = {
-        ("GET", "/SimplifyJobs/New-Grad-Positions/main/data/positions.json"): httpx.Response(
+        ("GET", "/SimplifyJobs/New-Grad-Positions/dev/data/positions.json"): httpx.Response(
             200,
             json=[
                 {
@@ -82,7 +82,7 @@ def test_github_adapter_infers_company_from_url(test_settings, github_transport_
         transport,
         source_name="simplify",
         slug="simplify",
-        urls=["https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json"],
+        urls=["https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/data/positions.json"],
     )
     try:
         jobs = asyncio.run(adapter.list_jobs("simplify"))
@@ -102,8 +102,8 @@ def test_github_adapter_fetch_detail(test_settings, github_transport_factory) ->
         source_name="simplify",
         slug="simplify",
         urls=[
-            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json",
-            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/src/data/positions.json",
+            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/data/positions.json",
+            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/src/data/positions.json",
         ],
     )
     try:
@@ -122,7 +122,7 @@ def test_github_adapter_fallback_url(test_settings, github_transport_factory) ->
     import httpx
 
     overrides = {
-        ("GET", "/SimplifyJobs/New-Grad-Positions/main/.github/scripts/listings.json"): httpx.Response(404)
+        ("GET", "/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json"): httpx.Response(404)
     }
     transport = github_transport_factory(overrides=overrides)
     adapter, client = _build_adapter(
@@ -131,8 +131,8 @@ def test_github_adapter_fallback_url(test_settings, github_transport_factory) ->
         source_name="simplify",
         slug="simplify",
         urls=[
-            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json",
-            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/src/data/positions.json",
+            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/data/positions.json",
+            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/src/data/positions.json",
         ],
     )
     try:
@@ -148,7 +148,7 @@ def test_github_adapter_filters_old_jobs(test_settings, github_transport_factory
     import httpx
 
     overrides = {
-        ("GET", "/SimplifyJobs/New-Grad-Positions/main/data/positions.json"): httpx.Response(
+        ("GET", "/SimplifyJobs/New-Grad-Positions/dev/data/positions.json"): httpx.Response(
             200,
             json=[
                 {
@@ -166,7 +166,7 @@ def test_github_adapter_filters_old_jobs(test_settings, github_transport_factory
         transport,
         source_name="simplify",
         slug="simplify",
-        urls=["https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json"],
+        urls=["https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/data/positions.json"],
     )
     try:
         jobs = asyncio.run(adapter.list_jobs("simplify"))
@@ -181,7 +181,7 @@ def test_github_adapter_supports_listings_container(test_settings, github_transp
     import httpx
 
     overrides = {
-        ("GET", "/SimplifyJobs/New-Grad-Positions/main/.github/scripts/listings.json"): httpx.Response(
+        ("GET", "/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json"): httpx.Response(
             200,
             json={
                 "listings": [
@@ -203,8 +203,8 @@ def test_github_adapter_supports_listings_container(test_settings, github_transp
         source_name="simplify",
         slug="simplify",
         urls=[
-            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/.github/scripts/listings.json",
-            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/src/data/positions.json",
+            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json",
+            "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/src/data/positions.json",
         ],
     )
 

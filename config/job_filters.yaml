@@ -1,0 +1,24 @@
+adapters:
+  greenhouse: true
+  simplify: true
+  newgrad2026: true
+
+filters:
+  include_keywords:
+    - software engineer
+    - software engineering
+    - swe
+    - new grad
+    - engineer i
+    - engineering i
+    - engineer 1
+    - engineering 1
+  exclude_keywords:
+    - manager
+    - director
+    - lead
+    - principal
+    - architect
+    - staff
+    - sr
+    - senior

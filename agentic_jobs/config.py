@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     enable_greenhouse: bool = Field(True, alias="ENABLE_GREENHOUSE")
     github_max_age_days: int = Field(3, alias="GITHUB_MAX_AGE_DAYS")
     simplify_positions_urls: str = Field(
-        "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/.github/scripts/listings.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/src/data/positions.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json",
+        "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/src/data/positions.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/data/positions.json",
         alias="SIMPLIFY_POSITIONS_URLS",
     )
     new_grad_2026_urls: str = Field(
-        "https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/.github/scripts/listings.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/src/data/positions.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/data/positions.json",
+        "https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/.github/scripts/listings.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/src/data/positions.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/data/positions.json",
         alias="NEW_GRAD_2026_URLS",
     )
     slack_bot_token: str | None = Field(None, alias="SLACK_BOT_TOKEN")
@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     slack_signing_secret: str | None = Field(None, alias="SLACK_SIGNING_SECRET")
     slack_jobs_feed_channel: str | None = Field(None, alias="SLACK_JOBS_FEED_CHANNEL")
     slack_jobs_drafts_channel: str | None = Field(None, alias="SLACK_JOBS_DRAFTS_CHANNEL")
+    slack_jobs_tracker_channel: str | None = Field(None, alias="SLACK_JOBS_TRACKER_CHANNEL")
+    slack_jobs_archive_channel: str | None = Field(None, alias="SLACK_JOBS_ARCHIVE_CHANNEL")
     llm_backend: str = Field("mock", alias="LLM_BACKEND")
     llm_model_name: str = Field("llama3.1:8b-instruct", alias="LLM_MODEL_NAME")
     llm_endpoint_url: str | None = Field(None, alias="LLM_ENDPOINT_URL")
@@ -50,6 +52,7 @@ class Settings(BaseSettings):
     digest_batch_size: int = Field(20, alias="DIGEST_BATCH_SIZE")
     scheduler_window_start_hour_pt: int = Field(7, alias="SCHEDULER_WINDOW_START_HOUR_PT")
     scheduler_window_end_hour_pt: int = Field(23, alias="SCHEDULER_WINDOW_END_HOUR_PT")
+    job_filter_config_path: str = Field("config/job_filters.yaml", alias="JOB_FILTER_CONFIG_PATH")
 
     model_config = SettingsConfigDict(
         env_file=".env",

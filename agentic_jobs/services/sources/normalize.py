@@ -124,13 +124,12 @@ def extract_requirements(html: str) -> list[dict[str, Any]]:
     return bullets
 
 
-def compute_hash(title: str, company_name: str, jd_text: str) -> str:
+def compute_hash(*components: str) -> str:
     """Compute a stable SHA-1 hash for deduplication."""
-    normalized = "|".join(
-        [
-            title.strip().lower(),
-            company_name.strip().lower(),
-            jd_text.strip().lower(),
-        ]
-    )
+    normalized_parts: list[str] = []
+    for component in components:
+        if component is None:
+            continue
+        normalized_parts.append(component.strip().lower())
+    normalized = "|".join(normalized_parts)
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
