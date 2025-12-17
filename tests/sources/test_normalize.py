@@ -30,3 +30,11 @@ def test_compute_hash_is_stable() -> None:
 
     assert hash_one == hash_two
     assert hash_one != hash_three
+
+
+def test_compute_hash_changes_with_extra_components() -> None:
+    text = "Build APIs and ensure reliability."
+    base_hash = compute_hash("Software Engineer", "TestOrg", text, "NYC")
+    alt_hash = compute_hash("Software Engineer", "TestOrg", text, "Seattle")
+
+    assert base_hash != alt_hash

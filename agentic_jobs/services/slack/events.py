@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from agentic_jobs.core.enums import FeedbackRole
 from agentic_jobs.db import models
 from agentic_jobs.services.drafts.generator import DraftGenerator, DraftGeneratorError
-from agentic_jobs.services.slack.client import SlackClient
+from agentic_jobs.services.slack.client import SlackClient, SlackError
+from agentic_jobs.services.slack.tracker import MasterTracker
 
 
 LOGGER = logging.getLogger(__name__)
@@ -64,5 +65,10 @@ async def handle_slack_event(
             post_to_slack=True,
             persist_notes=False,
         )
+        tracker = MasterTracker(session, slack_client)
+        try:
+            await tracker.refresh()
+        except SlackError:
+            LOGGER.debug("Failed to refresh tracker after auto-regenerate for %s", application.human_id)
     except DraftGeneratorError as exc:
         LOGGER.warning("Failed to auto-regenerate for %s: %s", application.human_id, exc)

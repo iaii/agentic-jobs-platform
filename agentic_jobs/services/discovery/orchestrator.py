@@ -12,6 +12,7 @@ from agentic_jobs.config import Settings
 from agentic_jobs.core.enums import JobSourceType, SubmissionMode
 from agentic_jobs.db import models
 from agentic_jobs.services.discovery.base import DiscoveryError, DiscoverySummary, JobRef, SourceAdapter
+from agentic_jobs.services.discovery.config import JobFilterConfig, get_job_filter_config
 from agentic_jobs.services.sources.normalize import compute_hash, extract_requirements, html_to_text
 from agentic_jobs.services.trust.evaluator import TrustResult, evaluate
 
@@ -23,17 +24,19 @@ def _slug_to_company(slug: str) -> str:
 LOGGER = logging.getLogger(__name__)
 
 
+
 async def run_discovery(
     session: Session,
     adapters: Sequence[SourceAdapter],
     settings: Settings,
 ) -> DiscoverySummary:
+    filter_config = get_job_filter_config(getattr(settings, "job_filter_config_path", None))
     summary = DiscoverySummary()
     domain_roots: set[str] = set()
 
     for adapter in adapters:
         try:
-            adapter_summary, adapter_domains = await _run_for_adapter(session, adapter, settings)
+            adapter_summary, adapter_domains = await _run_for_adapter(session, adapter, settings, filter_config)
         except DiscoveryError as exc:
             LOGGER.warning("Skipping adapter %s due to error: %s", adapter.source_name, exc)
             continue
@@ -51,6 +54,7 @@ async def _run_for_adapter(
     session: Session,
     adapter: SourceAdapter,
     settings: Settings,
+    filter_config: JobFilterConfig,
 ) -> tuple[DiscoverySummary, set[str]]:
     summary = DiscoverySummary()
     domain_cache: Dict[str, TrustResult] = {}
@@ -69,7 +73,7 @@ async def _run_for_adapter(
             summary.jobs_seen += len(job_refs)
 
             for job_ref in job_refs:
-                inserted = await _ingest_job(session, adapter, job_ref, cutoff, domain_cache)
+                inserted = await _ingest_job(session, adapter, job_ref, cutoff, domain_cache, filter_config)
                 if inserted:
                     summary.jobs_inserted += 1
 
@@ -83,7 +87,7 @@ async def _run_for_adapter(
             summary.orgs_crawled += 1
             summary.jobs_seen += len(job_refs)
             for job_ref in job_refs:
-                inserted = await _ingest_job(session, adapter, job_ref, cutoff, domain_cache)
+                inserted = await _ingest_job(session, adapter, job_ref, cutoff, domain_cache, filter_config)
                 if inserted:
                     summary.jobs_inserted += 1
 
@@ -140,7 +144,10 @@ async def _ingest_job(
     job_ref: JobRef,
     cutoff: datetime,
     domain_cache: Dict[str, TrustResult],
+    filter_config: JobFilterConfig,
 ) -> bool:
+    if not _is_relevant_role(job_ref.title, filter_config):
+        return False
     canonical_id = adapter.canonical_id(job_ref)
     if _job_seen_recently(session, canonical_id, cutoff):
         return False
@@ -149,7 +156,15 @@ async def _ingest_job(
     company_name = job_detail.company_name or _slug_to_company(job_ref.org_slug)
     jd_text = html_to_text(job_detail.html)
     requirements = extract_requirements(job_detail.html)
-    job_hash = compute_hash(job_ref.title, company_name, jd_text)
+    hash_payload = "\n".join(
+        [
+            jd_text,
+            job_ref.location or "",
+            job_ref.detail_url or "",
+            job_ref.job_id or "",
+        ]
+    )
+    job_hash = compute_hash(job_ref.title, company_name, hash_payload)
 
     if _hash_seen_recently(session, job_hash, cutoff):
         return False
@@ -214,12 +229,17 @@ def _job_seen_recently(session: Session, canonical_id: str, cutoff: datetime) ->
     stmt = (
         select(models.Job.id)
         .where(models.Job.job_id_canonical == canonical_id)
+        .where(models.Job.scraped_at >= cutoff)
     )
     return session.execute(stmt).scalar() is not None
 
 
 def _hash_seen_recently(session: Session, job_hash: str, cutoff: datetime) -> bool:
-    stmt = select(models.Job.id).where(models.Job.hash == job_hash)
+    stmt = (
+        select(models.Job.id)
+        .where(models.Job.hash == job_hash)
+        .where(models.Job.scraped_at >= cutoff)
+    )
     return session.execute(stmt).scalar() is not None
 
 
@@ -231,3 +251,17 @@ async def _evaluate_domain(
     if domain_root not in cache:
         cache[domain_root] = await evaluate(url, domain_root)
     return cache[domain_root]
+
+
+def _is_relevant_role(title: str, filter_config: JobFilterConfig) -> bool:
+    normalized = (title or "").strip().lower()
+    if not normalized:
+        return False
+
+    if any(exclude in normalized for exclude in filter_config.exclude_keywords):
+        return False
+
+    include = filter_config.include_keywords
+    if not include:
+        return True
+    return any(keyword in normalized for keyword in include)

@@ -49,8 +49,8 @@ def test_settings(tmp_path) -> Settings:
         REQUESTS_PER_MINUTE=120,
         REQUEST_TIMEOUT_SECONDS=5,
         ALLOWED_DOMAINS="boards.greenhouse.io",
-        SIMPLIFY_POSITIONS_URLS="https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/data/positions.json",
-        NEW_GRAD_2026_URLS="https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/data/positions.json",
+        SIMPLIFY_POSITIONS_URLS="https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/data/positions.json",
+        NEW_GRAD_2026_URLS="https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/data/positions.json",
     )
 
 

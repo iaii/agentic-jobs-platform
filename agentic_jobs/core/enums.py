@@ -33,6 +33,16 @@ class ApplicationStatus(StrEnum):
     CLOSED = "Closed"
 
 
+class ApplicationStage(StrEnum):
+    INTERESTED = "interested"
+    COVER_LETTER_IN_PROGRESS = "cover_letter_in_progress"
+    COVER_LETTER_FINALIZED = "cover_letter_finalized"
+    SUBMITTED = "submitted"
+    INTERVIEWING = "interviewing"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 class ArtifactType(StrEnum):
     JD_SNAPSHOT = "jd_snapshot"
     COVER_LETTER_VERSION = "cover_letter_vN"

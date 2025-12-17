@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from agentic_jobs.core.enums import (
+    ApplicationStage,
     ApplicationStatus,
     ArtifactType,
     DomainReviewStatus,
@@ -134,6 +135,16 @@ class Application(Base):
     status: Mapped[ApplicationStatus] = mapped_column(
         SAEnum(ApplicationStatus, name="application_status", native_enum=False),
         nullable=False,
+    )
+    stage: Mapped[ApplicationStage] = mapped_column(
+        SAEnum(
+            ApplicationStage,
+            name="application_stage",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=ApplicationStage.INTERESTED,
     )
     slack_channel_id: Mapped[Optional[str]] = mapped_column(String(64))
     slack_thread_ts: Mapped[Optional[str]] = mapped_column(String(32))
@@ -329,3 +340,23 @@ class ProfileFiles(Base):
     resume_variants: Mapped[List[dict]] = mapped_column(JSONB, nullable=False, default=list)
 
     identity: Mapped[ProfileIdentity] = relationship(back_populates="files")
+
+
+class TrackerView(Base):
+    __tablename__ = "tracker_views"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    view_type: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    slack_channel_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    slack_message_ts: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )

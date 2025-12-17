@@ -8,7 +8,12 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from agentic_jobs.core.enums import ApplicationStatus, ArtifactType, FeedbackRole
+from agentic_jobs.core.enums import (
+    ApplicationStage,
+    ApplicationStatus,
+    ArtifactType,
+    FeedbackRole,
+)
 from agentic_jobs.db import models
 from agentic_jobs.services.llm.prompt_builder import (
     DraftContext,
@@ -17,6 +22,7 @@ from agentic_jobs.services.llm.prompt_builder import (
     build_prompt_payload,
 )
 from agentic_jobs.services.llm.runner import LlmResponse, generate_cover_letter, summarize_feedback
+from agentic_jobs.services.applications.stage import apply_stage
 from agentic_jobs.services.llm.style_kit import CoverLetterKit, load_cover_letter_kit
 from agentic_jobs.services.slack.client import SlackClient
 
@@ -220,8 +226,7 @@ class DraftGenerator:
         slack_channel_id = application.slack_channel_id
         slack_thread_ts = application.slack_thread_ts
 
-        if application.status == ApplicationStatus.QUEUED:
-            application.status = ApplicationStatus.DRAFTING
+        apply_stage(application, ApplicationStage.COVER_LETTER_IN_PROGRESS)
 
         self.session.commit()
 
@@ -263,7 +268,7 @@ class DraftGenerator:
         author: str | None = None,
     ) -> str:
         application = self._ensure_application(application_id)
-        application.status = ApplicationStatus.DRAFT_READY
+        apply_stage(application, ApplicationStage.COVER_LETTER_FINALIZED)
         stmt = (
             select(models.ApplicationFeedback.text)
             .where(

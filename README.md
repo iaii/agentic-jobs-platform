@@ -30,6 +30,7 @@ This repo hosts the FastAPI + SQLAlchemy service that powers the complete Agenti
 - **Queue + tracker entries** created directly from Slack or API triggers
 - **Human-readable application IDs** (APP-YYYY-NNN format) with deterministic job scores recorded alongside each application
 - **Per-application Slack threads** anchored in the drafts channel, ready for cover-letter collaboration
+- **Pinned master tracker view** in `SLACK_JOBS_TRACKER_CHANNEL` listing the 25 most recent active applications with inline Manage modals (stage changes, JD snapshots, finalized cover letters) and zero-noise updates
 
 ### ✍️ **Cover Letter Drafting (LLM)**
 - **Thread-native workflow**: every application has a dedicated Slack thread. Press “Generate draft” to create a new version; drop feedback directly in the thread to trigger an automatic regen; use “Finalize draft” to lock it.
@@ -124,8 +125,8 @@ export ENABLE_GREENHOUSE="true"
 export GITHUB_MAX_AGE_DAYS="3"
 
 # GitHub Data Sources (comma-separated fallback URLs)
-export SIMPLIFY_POSITIONS_URLS="https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/.github/scripts/listings.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/main/src/data/positions.json"
-export NEW_GRAD_2026_URLS="https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/.github/scripts/listings.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/main/src/data/positions.json"
+export SIMPLIFY_POSITIONS_URLS="https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/src/data/positions.json"
+export NEW_GRAD_2026_URLS="https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/.github/scripts/listings.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/src/data/positions.json"
 
 # Slack Integration (required for full functionality)
 export SLACK_BOT_TOKEN="xoxb-your-bot-token"
@@ -220,6 +221,7 @@ Job records, sources, and trust events are persisted in Postgres. If an adapter 
 | --- | --- | --- |
 | `SIMPLIFY_POSITIONS_URLS` | Comma-separated fallback URLs for Simplify GitHub JSON feeds | Multiple SimplifyJobs URLs |
 | `NEW_GRAD_2026_URLS` | Comma-separated fallback URLs for vanshb03 GitHub JSON feeds | Multiple New-Grad-2026 URLs |
+| `JOB_FILTER_CONFIG_PATH` | Path to the YAML file that controls adapter enablement + keyword filters | `config/job_filters.yaml` |
 
 ### Slack Integration
 | Variable | Description | Required |
@@ -229,6 +231,29 @@ Job records, sources, and trust events are persisted in Postgres. If an adapter 
 | `SLACK_SIGNING_SECRET` | Signing Secret for request verification | ✅ |
 | `SLACK_JOBS_FEED_CHANNEL` | Channel for job digests | ✅ |
 | `SLACK_JOBS_DRAFTS_CHANNEL` | Channel for cover letter drafts | ✅ |
+| `SLACK_JOBS_TRACKER_CHANNEL` | Channel where the pinned master tracker message lives | ✅ |
+| `SLACK_JOBS_ARCHIVE_CHANNEL` | Channel that receives archived (rejected/accepted) applications | ✅ |
+
+### Job Filters & Sources
+
+The discovery pipeline reads `config/job_filters.yaml` each run to decide which adapters to use and which titles count as relevant. Customize it per user without touching code:
+
+```yaml
+adapters:
+  greenhouse: true      # enable/disable each adapter
+  simplify: true
+  newgrad2026: true
+
+filters:
+  include_keywords:
+    - software engineer
+    - new grad
+  exclude_keywords:
+    - manager
+    - director
+```
+
+The include/exclude lists are case-insensitive substrings evaluated against every job title before ingestion. Point `JOB_FILTER_CONFIG_PATH` at your own YAML if you keep multiple presets.
 
 ### LLM Drafting
 | Variable | Description | Example |

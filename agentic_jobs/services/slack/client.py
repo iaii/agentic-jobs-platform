@@ -105,6 +105,10 @@ class SlackClient:
             payload["blocks"] = blocks
         return await self._call("chat.update", payload)
 
+    async def delete_message(self, channel: str, ts: str) -> SlackResponse:
+        payload: MutableMapping[str, Any] = {"channel": channel, "ts": ts}
+        return await self._call("chat.delete", payload)
+
     async def post_ephemeral(
         self,
         channel: str,
