@@ -1,99 +1,715 @@
 # Agentic Jobs Platform
 
-This repo hosts the FastAPI + SQLAlchemy service that powers the complete Agentic Jobs Platform. The system provides seedless job discovery, normalization, deduplication, trust evaluation, Slack integration, and application tracking for automated job application management.
+A fully autonomous job-application pipeline — built on FastAPI, PostgreSQL, and Slack — that discovers jobs from multiple sources, scores and delivers them to you in real time, lets you track applications through a Slack-native interface, and drafts personalised cover letters using a multi-agent LLM workflow, down to auto-filling the ATS form.
 
 ---
 
-## Key Features
+## Table of Contents
 
-### 🔍 **Job Discovery & Processing**
-- **Pluggable discovery adapters** via a shared `SourceAdapter` protocol (`services/discovery/base.py`)
-- **Greenhouse frontier crawler** that seeds organization slugs from the public sitemap, respects robots.txt, rate-limits requests, and normalizes canonical IDs (`GH:<job_id>`)
-- **GitHub JSON feeds** (SimplifyJobs, New-Grad-2026) with fallback URLs, support for multiple schema variants (`listings`, `positions`, `companies`), and recency filtering (`GITHUB_MAX_AGE_DAYS`)
-- **Universal ATS adapters** powered by YAML configs so you can target Lever/Workday-style career portals (Apple, Meta, etc.) without code changes — now with automatic parser detection from just a careers URL
-- **Normalization & dedupe** through `services/sources/normalize.py` and `services/discovery/orchestrator.py`:
-  - HTML→text conversion, requirements extraction, SHA-1 hash dedup (30-day window)
-  - Canonical ID dedupe (30-day window). GitHub adapters emit `SIMPLIFY:<sha1>` / `NEWGRAD2026:<sha1>` style identifiers
-
-### 🛡️ **Trust & Security**
-- **Trust gate v1** stores `TrustEvent` rows with deterministic scores per domain (`services/trust/evaluator.py`)
-- **Domain review system** with Slack-based approval workflow for unknown domains
-- **Whitelist management** for approved domains and companies
-- **Built-in ATS auto-whitelist** for common hosts like Greenhouse, Lever, Ashby, Workday, SmartRecruiters, iCIMS, and Oracle Cloud so trusted boards never block the discovery flow
-
-### 📱 **Slack Integration**
-- **Interactive Slack components** with "Save to Tracker" / "Open JD" buttons carrying canonical IDs for reliable lookups
-- **Automated digest posting** with job scoring, rationale, and an explicit “no new postings” notice when nothing qualifies
-- **Per-card source labels** so every digest entry shows where it came from (GitHub · Simplify, Apple Careers, etc.)
-- **Needs-review cards** for unknown domains requiring human approval
-- **Tracker handoff to drafts channel**: saving a role automatically posts the job card in `SLACK_JOBS_DRAFTS_CHANNEL` and starts a dedicated thread for cover-letter work while still sending the requester an ephemeral confirmation
-- **Socket Mode integration** for real-time Slack event handling
-
-### 📊 **Application Tracking**
-- **Queue + tracker entries** created directly from Slack or API triggers
-- **Human-readable application IDs** (APP-YYYY-NNN format) with deterministic job scores recorded alongside each application
-- **Per-application Slack threads** anchored in the drafts channel, ready for cover-letter collaboration
-- **Pinned master tracker view** in `SLACK_JOBS_TRACKER_CHANNEL` listing the 25 most recent active applications with inline Manage modals (stage changes, JD snapshots, finalized cover letters) and zero-noise updates
-
-### ✍️ **Cover Letter Drafting (LLM)**
-- **Thread-native workflow**: every application has a dedicated Slack thread. Press “Generate draft” to create a new version; drop feedback directly in the thread to trigger an automatic regen; use “Finalize draft” to lock it.
-- **Profile-aware kit**: prompt builder injects your profile snapshot, projects, and style/tone preferences on every call.
-- **Swappable LLM runners**: configure `LLM_BACKEND=qwen` (DashScope) or `LLM_BACKEND=ollama` (OpenAI-compatible) plus `LLM_ENDPOINT_URL`, `LLM_MODEL_NAME`, and `LLM_API_KEY`/`OLLAMA_API_KEY`.
-- **Artifact + feedback history**: every version is saved under `artifacts/APP-YYYY-NNN/cl-vN.md` and logged in `application_feedback` so you always have the full revision trail.
-
-### 🔄 **Automation & Scheduling**
-- **3-hour discovery cycles** with configurable time windows (06:00-23:00 PT)
-- **Automatic job ingestion** from multiple sources
-- **Slack digest posting** with ranked job listings
-- **Domain review automation** for new/untrusted sources
+1. [Architecture overview](#architecture-overview)
+2. [Discovery pipeline](#discovery-pipeline)
+3. [Trust & domain review](#trust--domain-review)
+4. [Slack integration](#slack-integration)
+5. [Cover letter drafting (LLM)](#cover-letter-drafting-llm)
+6. [Application tracking](#application-tracking)
+7. [Autofill pipeline](#autofill-pipeline)
+8. [Database schema](#database-schema)
+9. [Scheduler & cron](#scheduler--cron)
+10. [Configuration reference](#configuration-reference)
+11. [Setup & quick-start](#setup--quick-start)
 
 ---
 
-## Project Structure
+## Architecture overview
 
 ```
-agentic_jobs/
-├── api/v1/                       # REST API endpoints
-│   ├── discover.py               # Job discovery orchestration
-│   ├── applications.py           # Application management
-│   ├── slack_actions.py          # Slack interactive components
-│   ├── trust.py                  # Trust evaluation endpoints
-│   ├── drafts.py                 # Cover letter generation API
-│   └── feedback.py               # Draft feedback + regen API
-├── config.py                     # Pydantic settings (env-driven)
-├── core/enums.py                 # Application enums and constants
-├── db/
-│   ├── models.py                 # SQLAlchemy models (complete schema)
-│   └── session.py                # Database session management
-├── services/
-│   ├── discovery/                # Job discovery system
-│   │   ├── base.py               # SourceAdapter protocol
-│   │   ├── greenhouse_adapter.py # Greenhouse crawler
-│   │   ├── github_adapter.py     # GitHub JSON feed adapters
-│   │   ├── orchestrator.py       # Multi-adapter orchestration
-│   │   └── rate_limiter.py       # Async rate limiting
-│   ├── slack/                    # Slack integration
-│   │   ├── client.py             # Slack API client
-│   │   ├── actions.py            # Interactive component handlers
-│   │   ├── digest.py             # Digest message formatting
-│   │   ├── socket.py             # Socket Mode integration
-│   │   └── workflows.py          # Workflow automation
-│   ├── ranking/scorer.py         # Job scoring system
-│   ├── sources/normalize.py      # HTML normalization + hashing
-│   ├── trust/evaluator.py        # Trust scoring system
-│   ├── scheduler/cron.py         # Scheduled task management
-│   └── drafts/                   # LLM prompt builder + generator
-└── schemas/                      # Pydantic schemas (future)
-tests/
-├── discovery/                    # Discovery system tests
-├── slack/                       # Slack integration tests
-├── sources/                     # Normalization tests
-└── fixtures/                    # Test data and mocks
+┌──────────────────────────────────────────────────────────────────────┐
+│                        FastAPI application                           │
+│                                                                      │
+│  /api/v1/discover   /api/v1/slack   /api/v1/drafts   /api/v1/autofill│
+└───────────┬────────────────┬────────────────┬──────────────┬─────────┘
+            │                │                │              │
+     Discovery           Slack Socket      LLM agents    Autofill
+     orchestrator         Mode loop         pipeline      API + ext
+            │                │
+     ┌──────┴──────┐   ┌─────┴──────────┐
+     │ Adapters    │   │ Digest / Tracker│
+     │ Greenhouse  │   │ Actions         │
+     │ GitHub x2   │   │ Workflows       │
+     │ Universal   │   └─────────────────┘
+     └──────┬──────┘
+            │
+     PostgreSQL (SQLAlchemy, scoped_session)
 ```
+
+The server starts three long-running background tasks:
+
+| Task | What it does |
+|------|-------------|
+| **Scheduler** | Triggers discovery cycles on a configurable PT schedule (default: every 3 h, 07:00–23:00) |
+| **Socket Mode listener** | Maintains a persistent Slack WebSocket connection; dispatches button/modal events to action handlers instantly |
+| **Vault refresh** | On startup, re-embeds any modified sections of a local Obsidian vault for retrieval during cover-letter generation |
 
 ---
 
-## Setup
+## Discovery pipeline
+
+### SourceAdapter protocol
+
+Every source implements the `SourceAdapter` async protocol defined in `services/discovery/base.py`:
+
+```python
+async def discover()            → Sequence[str]    # seed org slugs
+async def list_jobs(slug)       → Sequence[JobRef] # lightweight job refs
+async def fetch_job_detail(ref) → JobDetail        # full HTML / metadata
+def    canonical_id(ref)        → str              # stable dedup key
+```
+
+`JobRef` carries: title, company, location, detail URL, source label, and arbitrary metadata that flows through to the `JobSource` row in the database.
+
+The orchestrator runs every adapter in sequence, enforces two dedup windows, and writes `Job`, `JobSource`, and `TrustEvent` rows for every new posting.
+
+---
+
+### Greenhouse adapter
+
+```
+Sitemap → FrontierOrg list → JSON board endpoint → fallback HTML parse
+```
+
+1. **Frontier seeding**: fetches `sitemap_index.xml`, extracts org slugs, upserts `FrontierOrg` rows (unique on `source` + `org_slug`).
+2. **Batch selection**: picks up to `MAX_ORGS_PER_RUN` orgs ordered by `(priority DESC, last_crawled_at ASC NULLS FIRST)` and not currently `muted_until`.
+3. **Job listing**: `GET /org_slug/embed/job_board/json` → falls back to HTML parsing (`<div class="opening">`) if the endpoint returns 4xx/5xx.
+4. **Detail fetch**: full HTML from the job board page; LD+JSON `application/ld+json` block used to extract the canonical company name.
+5. **Rate limiting**: `AsyncRateLimiter` leaky-bucket at `REQUESTS_PER_MINUTE`.
+6. **Robots.txt**: parsed and respected; any disallowed path is silently skipped.
+7. **Canonical ID**: `GH:<job_id>`.
+
+---
+
+### GitHub JSON adapters
+
+Two adapters — **Simplify** (`SIMPLIFY:<sha1>`) and **New-Grad-2026** (`NEWGRAD2026:<sha1>`) — share the same implementation, differing only in config:
+
+- **Multi-URL fallback**: iterates `SIMPLIFY_POSITIONS_URLS` / `NEW_GRAD_2026_URLS` until one returns HTTP 200.
+- **Schema flexibility**: supports four JSON shapes emitted by these repos over time:
+  ```
+  { "listings": [...] }
+  { "positions": [...] }
+  { "companies": [{ "roles": [...] }] }
+  raw list
+  ```
+- **Recency filter**: drops postings older than `GITHUB_MAX_AGE_DAYS` (default 3); understands ISO-8601 strings, Unix epoch integers, and `YYYY-MM-DD` date strings.
+- **Company inference**: extracts company from the job URL path when the feed omits it (Greenhouse/Lever/Workday slug patterns).
+- **No frontier**: these adapters set `uses_frontier = False`; the orchestrator skips the DB frontier for them.
+
+---
+
+### Universal ATS adapter
+
+YAML-driven; targets arbitrary career portals without code changes.  Configure in `config/universal_sites.yaml`:
+
+```yaml
+sites:
+  - site_slug: apple
+    display_name: Apple Careers
+    feeds:
+      - feed_slug: corporate
+        parser: workday
+        options:
+          host: jobs.apple.com
+          tenant: apple
+          site: en-us
+
+  - site_slug: meta
+    display_name: Meta Careers
+    feeds:
+      - site_url: https://www.metacareers.com/jobsearch/   # auto-detect
+```
+
+**Auto-detection**: when only `site_url` is given, the adapter fetches the page once, then `ParserDetector` pattern-matches the HTML/JS to identify the underlying ATS (Lever, Workday, Ashby, SmartRecruiters, iCIMS, Oracle Cloud) and stores the resolved config for the run.
+
+**Parser interface**: each parser implements `list_jobs() → [ParsedJob]` with fields: `job_id`, `title`, `location`, `detail_url`, `posted_at`.
+
+`crawl_interval_minutes` on a feed overrides the global scheduler cadence per site.  `UNIVERSAL_MAX_AGE_DAYS` (default 7) drops stale postings when the feed exposes `posted_at`.
+
+---
+
+### Orchestrator
+
+`services/discovery/orchestrator.py` runs the full loop:
+
+```
+for each adapter:
+  1. discover()  →  seed / update FrontierOrg (if uses_frontier)
+  2. select batch  from frontier (MAX_ORGS_PER_RUN)
+  3. for each org:
+       list_jobs()  →  [JobRef]
+       for each ref:
+         _is_relevant_role()    ← title keyword filter
+         _job_seen_recently()   ← 30-day canonical-ID dedup
+         _hash_seen_recently()  ← 30-day SHA-1 content dedup
+         fetch_job_detail()     → normalize → extract requirements
+         trust evaluation       → TrustEvent row
+         persist Job + JobSource
+  4. update last_crawled_at; set muted_until if feed specifies interval
+  5. return DiscoverySummary
+```
+
+**Deduplication detail**:
+- Canonical-ID window: `canonical_id` seen in a `JobSource` row with `scraped_at >= now() - 30 days`.
+- Content-hash window: SHA-1 of `title.lower() + company.lower() + jd_text + location + url + job_id` seen in the same window.
+- Adapter failures (4xx, timeouts) are logged as warnings; the orchestrator continues with remaining sources.
+
+---
+
+### Normalization
+
+`services/sources/normalize.py`:
+
+| Step | Detail |
+|------|--------|
+| HTML → text | Custom `_HTMLStripper` inserts newlines at `<p>`, `<div>`, `<h*>`, `<li>` boundaries |
+| Requirements extraction | `_RequirementExtractor` pulls `<li>` items; falls back to paragraphs containing "require"/"must"/"responsible" |
+| Hash | SHA-1 of normalised components |
+
+---
+
+### Job filtering
+
+`config/job_filters.yaml` — evaluated before any network call:
+
+```yaml
+adapters:
+  greenhouse: true
+  simplify: true
+  newgrad2026: true
+  universal: true
+
+filters:
+  include_keywords: [software engineer, swe, new grad, ...]
+  exclude_keywords:  [manager, director, senior, ...]
+```
+
+A job must contain **at least one** include keyword and **zero** exclude keywords in its title (case-insensitive substring match).  Point `JOB_FILTER_CONFIG_PATH` at a different YAML to switch profiles without touching code.
+
+---
+
+## Trust & domain review
+
+Every newly discovered domain goes through a trust check before its jobs appear in a digest.
+
+### TrustEvent scoring
+
+`services/trust/evaluator.py` records a `TrustEvent` row per domain per run:
+
+```
+score   : 0–100
+signals : [{signal: "host", value: "boards.greenhouse.io"}, ...]
+verdict : AUTO_SAFE | NEEDS_HUMAN_APPROVAL | REJECT
+```
+
+Known ATS hosts (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, iCIMS, Oracle Cloud) are auto-whitelisted in `services/trust/whitelist.py` and always resolve to `AUTO_SAFE`.
+
+### Domain review workflow
+
+```
+Discovery: unknown domain found
+    │
+    ▼
+DomainReview(status=PENDING) created
+    │
+    ▼
+Scheduler posts "Needs Review" card in SLACK_JOBS_FEED_CHANNEL
+  [Approve]  [Reject]  [Mute]
+    │
+    ▼  (user clicks Approve)
+Whitelist row inserted, DomainReview.status = APPROVED
+Future jobs from this domain flow into digests normally
+```
+
+`MUTED` domains are suppressed for a configurable `muted_until` duration before re-surfacing.
+
+---
+
+## Slack integration
+
+### Channel layout
+
+| Channel env var | Purpose |
+|-----------------|---------|
+| `SLACK_JOBS_FEED_CHANNEL` | Digest posts + domain review cards |
+| `SLACK_JOBS_DRAFTS_CHANNEL` | Per-application threads; cover letter collaboration |
+| `SLACK_JOBS_TRACKER_CHANNEL` | Pinned master tracker view |
+| `SLACK_JOBS_ARCHIVE_CHANNEL` | Final outcomes (accepted / rejected) |
+
+### Socket Mode
+
+`services/slack/socket.py` maintains a persistent WebSocket via `slack_sdk.socket_mode.aiohttp.SocketModeClient`.
+
+- **Immediate ACK**: every incoming envelope is acknowledged before any processing — prevents the 3-second Slack timeout.
+- **Background dispatch**: each event handler is spawned as an `asyncio.Task` so the ACK loop is never blocked.
+- **Routing**: `events_api` payloads → `_process_event()`; `block_actions` / `view_submission` payloads → `_process_interaction()`.
+- **Session management**: one `aiohttp.ClientSession` per handler call, closed in `finally`.
+
+### Digest workflow
+
+```
+Scheduler calls collect_digest_rows()
+  └─ Query jobs since last_posted_at (DigestLog dedup)
+  └─ score_job(): 0.3 baseline
+                  + 0.2 for title match
+                  + 0.15 for new-grad tag
+                  + 0.2 for location preference
+                  + 0.15 for remote flag
+                  (capped at 1.0)
+  └─ Sort DESC, take top DIGEST_BATCH_SIZE (default 20)
+  └─ Render blocks: title · company · location · score · source label
+                    [Open JD]  [Save to Tracker]
+  └─ Post to SLACK_JOBS_FEED_CHANNEL
+  └─ Insert DigestLog rows (unique on job_id + digest_date)
+
+Collect needs-review candidates
+  └─ For each new domain: check auto-whitelist → Whitelist → DomainReview
+  └─ Create DomainReview(PENDING) for genuinely unknown domains
+  └─ Post review cards immediately after digest
+```
+
+### Save to Tracker flow
+
+1. User clicks **Save to Tracker** on any digest card.
+2. `handle_save_to_tracker()`:
+   - Resolves the `Job` by UUID or canonical ID embedded in the button payload.
+   - Checks `canonical_job_id` uniqueness (one application per job).
+   - Generates `APP-{YYYY}-{NNN}` human ID.
+   - Creates `Application` row (`status=QUEUED`, `stage=INTERESTED`, score recorded).
+   - Writes JD snapshot to `artifacts/{human_id}/jd.md`.
+   - Posts application card in `SLACK_JOBS_DRAFTS_CHANNEL` with buttons:
+     - **Quick Draft** — single LLM pass
+     - **Generate CL** — full multi-agent pipeline (research → write → review → revise)
+     - **Finalize Draft** — lock version, enable autofill
+   - Refreshes the pinned master tracker.
+
+### Master tracker
+
+`services/slack/tracker.py` maintains a paginated pinned message in `SLACK_JOBS_TRACKER_CHANNEL`.
+
+- Up to 100 rows across 4 pages (25 rows each).
+- Each page is stored as a `TrackerView` row holding the Slack `message_ts` so it can be updated in place.
+- Header shows stage counts: Interested · CL In Progress · CL Finalized · Submitted · Interviewing.
+- Clicking a row opens a **Manage** modal with: stage selector, control buttons (Generate CL / Finalize / Queue Autofill), JD snapshot, latest cover-letter preview.
+- Refreshed on every `save_to_tracker`, `stage_select`, `finalize_draft`, or autofill status change.
+
+---
+
+## Cover letter drafting (LLM)
+
+### Profile kit
+
+All personalisation is driven by `agentic_jobs/profile/cover_letter_kit.yaml`.  Key sections:
+
+```yaml
+profile:
+  bio: …
+  background: […]
+  technical_strengths: {category: [skills]}
+
+experience:
+  - key: job-key
+    title: …
+    bullets: […]
+    themes: [visual, automation, health]   # used for theme matching
+
+projects:
+  - key: project-key
+    name: …
+    talking_points: […]
+    themes: [application domains]
+
+tone:
+  overall:  [voice guidelines]
+  dislikes: [what to avoid]
+  likes:    [preferred phrasing]
+
+structure:
+  greeting: "Dear Hiring Manager,"
+  opener_guidance: …
+  plan:
+    bullets: [pair during onboarding, …]
+  stack_guidance: …
+  close_guidance: …
+
+tailoring_checklist: [things to verify per JD]
+dos:   […]
+donts: […]
+```
+
+### Prompt builder
+
+`services/llm/prompt_builder.py` constructs the full prompt payload:
+
+1. Load kit + application job + feedback history + `AgentMemory` learning notes.
+2. **Theme matching**: scan JD for domain keywords (health, automation, fintech…) → pick the matching `project` entry.
+3. **Role targets**: grep JD for backend/APIs/SQL/React/Python → cap at 4; fall back to `STACK_DEFAULTS`.
+4. **Stack composition**: from profile skills or defaults.
+5. Build `DraftContext`:
+   ```
+   role:         {title, company, location, targets[]}
+   project_card: {name, short_name, summary, talking_points, themes}
+   profile:      {identity, links, skills, stack, projects}
+   note:         latest user feedback (if any)
+   learning:     top 3 recent AgentMemory notes
+   tone_rules:   kit.tone
+   structure:    kit.structure
+   ```
+
+### LLM runner
+
+`services/llm/runner.py` supports multiple backends, configured by `LLM_BACKEND`:
+
+| Backend | Endpoint | Auth |
+|---------|----------|------|
+| `lmstudio` / `ollama` | `LLM_ENDPOINT_URL` (OpenAI-compatible `/v1/chat/completions`) | `LLM_API_KEY` / `OLLAMA_API_KEY` |
+| `qwen` | DashScope API | `LLM_API_KEY` |
+| `mock` | In-process stub | — |
+
+- **Retries**: 3 attempts, exponential backoff, triggered on HTTP 429 and 500–504.
+- **Timeout**: `LLM_TIMEOUT_SECONDS` (default 120).
+- **User message cap**: `LLM_MAX_USER_MSG_CHARS` (default 12 000) — long JDs are truncated before the call.
+- **Response parsing**: strips markdown code fences if the model wraps JSON.
+- Returns `LlmResponse(version, cover_letter_md, sections_used, provenance)`.
+
+### Multi-agent pipeline (`Generate CL`)
+
+`services/agents/coordinator.py` orchestrates four specialised agents:
+
+```
+Phase 1 — Data gathering (parallel)
+  CompanyScraper   → fetch careers page + about page
+                     (CompanyCache TTL=7 days; domain → scraped_data JSONB)
+  VaultRetriever   → semantic search Obsidian vault for company insights
+                     (VaultEmbedding table; re-indexed on startup if stale)
+  Memory loader    → AgentMemory records for this application
+
+Phase 2 — Research synthesis
+  ResearcherAgent  → LLM call: scraped pages + vault matches
+                   → ResearchBrief {insights, tone_suggestions}
+
+Phase 3 — Writing
+  WriterAgent      → LLM call: brief + JD + profile + tone rules
+                   → CoverLetterDraft {text, sections, metadata}
+
+Phase 4 — Review loop
+  HiringManagerAgent → LLM call: draft + full context
+                     → ReviewVerdict {score/10, feedback, revision_suggestions}
+  if score < PIPELINE_PASS_THRESHOLD (default 7.0)
+  and revisions < PIPELINE_MAX_REVISIONS (default 2):
+    WriterAgent regenerates with feedback → loop back to review
+
+Phase 5 — Persistence
+  Save draft as   artifacts/{human_id}/cl-v{N}.md
+  Create PipelineRun row (mode, status, agent_log JSONB, final_score, revision_count)
+  Post progress updates + final draft to Slack thread
+```
+
+### Quick Draft (`Quick Draft`)
+
+Single LLM pass via `DraftGenerator`:
+
+1. Load profile bundle + kit.
+2. Fetch `ApplicationFeedback` history (ordered, all roles).
+3. Fetch top 3 `AgentMemory` learning notes.
+4. Call `generate_cover_letter()`.
+5. Persist `artifacts/{human_id}/cl-v{N}.md`.
+6. Store `ApplicationFeedback(role=SYSTEM, author=generator, text=cover_letter_md)`.
+
+### Feedback-driven regeneration
+
+1. User drops a note in the Slack thread (or uses the feedback input in the Manage modal).
+2. Note stored as `ApplicationFeedback(role=USER, text=note)`.
+3. Next Generate/Quick Draft call includes the full feedback history in the prompt payload.
+4. New version is persisted as `cl-v{N+1}.md`.
+
+### Finalize & DOCX export
+
+- **Finalize**: sets `Application.stage = COVER_LETTER_FINALIZED`, posts confirmation.
+- **DOCX**: `services/documents/docx_renderer.py` converts the markdown to a `python-docx` document: Calibri 12 pt, 1" margins, 1.15 line spacing, bold headings, proper bullet lists.  Written to `artifacts/{human_id}/cover-letter.docx` and stored as an `Artifact(type=COVER_LETTER_FINAL_PDF)`.
+
+---
+
+## Application tracking
+
+### Human-readable IDs
+
+```
+Format:  APP-{YYYY}-{NNN}
+Example: APP-2026-012
+
+Query: SELECT MAX(human_id) WHERE human_id LIKE 'APP-{year}-%'
+Next:  parse sequence, increment, zero-pad to 3 digits
+```
+
+### Stage state machine
+
+```
+INTERESTED
+    │  (click Generate CL / Quick Draft)
+    ▼
+COVER_LETTER_IN_PROGRESS
+    │  (click Finalize Draft)
+    ▼
+COVER_LETTER_FINALIZED
+    │  (autofill completes or manual submit)
+    ▼
+SUBMITTED
+    │
+    ▼
+INTERVIEWING
+    │
+    ├──▶  ACCEPTED  (posted to archive channel)
+    └──▶  REJECTED  (posted to archive channel)
+```
+
+Each stage transition calls `apply_stage()` in `services/applications/stage.py`, which updates both `Application.stage` and the corresponding `ApplicationStatus`, then triggers any side effects (archive post, tracker refresh).
+
+### Artifacts
+
+Every application accumulates files under `artifacts/{human_id}/`:
+
+| File | ArtifactType |
+|------|-------------|
+| `jd.md` | `JD_SNAPSHOT` |
+| `cl-v1.md`, `cl-v2.md`, … | `COVER_LETTER_VERSION` |
+| `cover-letter.docx` | `COVER_LETTER_FINAL_PDF` |
+| `autofill_summary.json` | `AUTOFILL_SUMMARY` |
+
+---
+
+## Autofill pipeline
+
+### Flow
+
+```
+1. Finalize Draft → auto-queues AutofillTask (if AUTOFILL_ENABLED=true)
+                    or user clicks "Queue Autofill" manually
+
+2. Backend (services/autofill/orchestrator.py):
+   - Validate domain in AUTOFILL_ALLOWED_DOMAINS
+   - Load ProfileIdentity (DB) or fall back to AUTOFILL_FAKE_PROFILE_PATH YAML
+   - Select resume variant matching role keywords
+   - Render cover-letter DOCX → PDF (if AUTOFILL_CL_PDF_ENABLED)
+   - Build autofill_summary.json with application metadata + file paths
+   - Create AutofillTask(status=QUEUED)
+   - Post confirmation to SLACK_JOBS_DRAFTS_CHANNEL thread
+
+3. Start (user clicks "Autofill" or auto-start):
+   - AutofillTask → IN_PROGRESS
+   - Open JD URL appended with #ajp_autofill=APP-YYYY-NNN
+   - Post ops notification to AUTOFILL_OPS_CHANNEL
+
+4. Browser extension (autofill_extension/content.js):
+   - Detects #ajp_autofill fragment
+   - GET /api/v1/autofill/payload/{human_id}  (X-Autofill-Token header)
+   - Enumerates form fields (inputs, selects, radios, textareas) + labels
+   - POST /api/v1/autofill/answer → LLM answers fields from profile
+   - Fills supported ATS forms (Greenhouse, Workday; extensible)
+   - POST /api/v1/autofill/status to report in_progress / ready / blocked / failed
+
+5. Backend status handler:
+   - Transitions AutofillTask state
+   - Posts progress to Slack thread + ops channel
+   - Records final_url on completion
+```
+
+### AutofillTask status enum
+
+| Status | Meaning |
+|--------|---------|
+| `QUEUED` | Created, waiting for extension to start |
+| `IN_PROGRESS` | Extension is actively filling the form |
+| `READY` | Form filled, awaiting submit or user confirmation |
+| `BLOCKED` | Human action needed (CAPTCHA, custom field) |
+| `FAILED` | Error during filling or submission |
+| `SKIPPED` | Domain not allowed or profile missing |
+
+### Extension ATS support
+
+| ATS | Fields auto-filled |
+|-----|-------------------|
+| **Greenhouse** | first/last name, email, phone, location, LinkedIn, GitHub, resume highlight |
+| **Workday** | first/last name, email, phone, city, postal code, resume highlight |
+| Additional ATS | extend `autofill_extension/content.js` |
+
+The `/api/v1/autofill/answer` endpoint calls the LLM with a system prompt that strictly limits answers to provided profile data ("Do not invent. Match select options exactly."), so there is no hallucinated data risk.
+
+---
+
+## Database schema
+
+All models are in `agentic_jobs/db/models.py`.
+
+### Core tables
+
+| Table | PK | Notable columns |
+|-------|----|----------------|
+| `jobs` | UUID | `title`, `company`, `jd_text`, `requirements[]`, `canonical_job_id`, `content_hash`, `domain_root` |
+| `job_sources` | UUID | `job_id FK`, `source_type (enum)`, `raw_payload`, `canonical_hash`, `scraped_at` |
+| `applications` | UUID | `human_id`, `job_id FK`, `status (enum)`, `stage (enum)`, `score`, `slack_channel_id`, `slack_thread_ts` |
+| `artifacts` | UUID | `application_id FK`, `type (enum)`, `uri` |
+| `application_feedback` | UUID | `application_id FK`, `role (enum)`, `author`, `text` |
+| `autofill_tasks` | UUID | `application_id FK`, `status (enum)`, `mode (enum)`, `domain_root`, `payload_path`, `final_url` |
+| `pipeline_runs` | UUID | `application_id FK`, `mode (enum)`, `status (enum)`, `agent_log JSONB`, `final_score`, `revision_count` |
+| `frontier_orgs` | UUID | `source`, `org_slug`; unique `(source, org_slug)`, `priority`, `last_crawled_at`, `muted_until` |
+| `trust_events` | UUID | `domain_root (indexed)`, `score`, `signals JSONB`, `verdict (enum)` |
+| `domain_reviews` | UUID | `domain_root (unique)`, `status (enum)`, `muted_until`, `resolved_at` |
+| `whitelist` | `domain_root` (PK) | `company_name`, `ats_type`, `approved_by`, `approved_at` |
+| `digest_logs` | UUID | `job_id FK`, `digest_date`, `slack_channel_id`, `slack_message_ts`; unique `(job_id, digest_date)` |
+| `tracker_views` | UUID | `view_type (unique)`, `slack_channel_id`, `slack_message_ts` |
+
+### Profile tables
+
+| Table | Notes |
+|-------|-------|
+| `profile_identities` | One row per user identity |
+| `profile_links` | `identity_id FK (unique)` — linkedin, github, portfolio |
+| `profile_facts` | `identity_id FK (unique)` — `skills JSONB`, `tools JSONB`, education |
+| `profile_files` | `identity_id FK (unique)` — `resume_variants JSONB` |
+
+### Intelligence tables
+
+| Table | Notes |
+|-------|-------|
+| `agent_memories` | `application_id FK (nullable)`, `memory_type` (SHORT_TERM/LONG_TERM), `category` (STYLE_PREFERENCE/COMPANY_INSIGHT/FEEDBACK_PATTERN), `expires_at` |
+| `vault_embeddings` | `(file_path, heading)` unique; `embedding (vector)`, `file_hash` — backing store for Obsidian vault semantic search |
+| `company_cache` | `domain (unique)`, `scraped_data JSONB`, `ttl_hours` (default 168 = 7 days) |
+
+---
+
+## Scheduler & cron
+
+`services/scheduler/cron.py`:
+
+```
+start_scheduler()
+  └─ asyncio background loop
+       ├─ _next_run_time(now_pt)   ← aligns to DISCOVERY_INTERVAL_HOURS
+       │   boundaries within       ←  SCHEDULER_WINDOW_START/END_HOUR_PT
+       ├─ sleep until next run
+       ├─ _run_discovery_cycle()
+       │    ├─ instantiate adapters
+       │    ├─ run_discovery() per adapter
+       │    ├─ collect + post digest
+       │    └─ collect + post domain-review cards
+       ├─ _memory_assess_job()      ← every MEMORY_ASSESSMENT_INTERVAL_DAYS
+       │    └─ batch recent feedback to LLM → extract long-term learnings
+       │       stored as AgentMemory(LONG_TERM) for future drafts
+       └─ _refresh_vault_embeddings() (startup only)
+            └─ re-embed stale vault sections (hash comparison)
+```
+
+Default window: 07:00–23:00 PT, 3-hour intervals → runs at 07:00, 10:00, 13:00, 16:00, 19:00, 22:00.
+
+---
+
+## Configuration reference
+
+### Core
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgresql+psycopg2://postgres:postgres@localhost:5432/agentic_jobs` | SQLAlchemy connection string |
+| `ENVIRONMENT` | `development` | `development` or `production` |
+| `DEBUG` | `false` | Enable debug logging |
+
+### Discovery
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DISCOVERY_BASE_URL` | `https://boards.greenhouse.io` | Greenhouse base for robots + sitemap |
+| `DISCOVERY_SITEMAP_URL` | `https://boards.greenhouse.io/sitemap_index.xml` | Greenhouse sitemap |
+| `DISCOVERY_INTERVAL_HOURS` | `3` | Hours between discovery cycles |
+| `MAX_ORGS_PER_RUN` | `100` | Frontier batch size |
+| `REQUESTS_PER_MINUTE` | `60` | Rate limit for HTTP |
+| `REQUEST_TIMEOUT_SECONDS` | `5` | Per-request timeout |
+| `ALLOWED_DOMAINS` | `boards.greenhouse.io,raw.githubusercontent.com,github.com` | Greenhouse adapter robots allowlist |
+| `ENABLE_GREENHOUSE` | `true` | Toggle Greenhouse adapter |
+| `GITHUB_MAX_AGE_DAYS` | `3` | Drop GitHub listings older than N days |
+| `SIMPLIFY_POSITIONS_URLS` | (multiple) | Comma-separated fallback URLs |
+| `NEW_GRAD_2026_URLS` | (multiple) | Comma-separated fallback URLs |
+| `UNIVERSAL_MAX_AGE_DAYS` | `7` | Drop universal-adapter jobs older than N days |
+| `JOB_FILTER_CONFIG_PATH` | `config/job_filters.yaml` | Title filter + adapter toggle config |
+| `UNIVERSAL_SITES_CONFIG_PATH` | `config/universal_sites.yaml` | Universal adapter feed definitions |
+
+### Slack
+
+| Variable | Required | Description |
+|----------|---------- |-------------|
+| `SLACK_BOT_TOKEN` | ✅ | `xoxb-…` Bot User OAuth Token |
+| `SLACK_APP_LEVEL_TOKEN` | ✅ | `xapp-…` App-Level Token (Socket Mode) |
+| `SLACK_SIGNING_SECRET` | ✅ | Request signature verification |
+| `SLACK_JOBS_FEED_CHANNEL` | ✅ | Digest + domain review |
+| `SLACK_JOBS_DRAFTS_CHANNEL` | ✅ | Application threads |
+| `SLACK_JOBS_TRACKER_CHANNEL` | ✅ | Pinned master tracker |
+| `SLACK_JOBS_ARCHIVE_CHANNEL` | ✅ | Final outcomes |
+
+### LLM
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_BACKEND` | `lmstudio` | `mock` / `lmstudio` / `ollama` / `qwen` |
+| `LLM_MODEL_NAME` | `local-model` | Model identifier sent in API requests |
+| `LLM_ENDPOINT_URL` | `http://localhost:1234/v1/chat/completions` | OpenAI-compatible endpoint |
+| `LLM_TIMEOUT_SECONDS` | `120` | Request timeout |
+| `LLM_MAX_USER_MSG_CHARS` | `12000` | Truncate long JDs before sending |
+| `LLM_API_KEY` | — | Bearer token (DashScope or any OpenAI-style provider) |
+| `OLLAMA_API_KEY` | — | Bearer token for Ollama Cloud |
+
+### Scheduler
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCHEDULER_WINDOW_START_HOUR_PT` | `7` | Start hour (PT) |
+| `SCHEDULER_WINDOW_END_HOUR_PT` | `23` | End hour (PT) |
+| `DIGEST_BATCH_SIZE` | `20` | Max jobs per digest |
+| `MEMORY_ASSESSMENT_INTERVAL_DAYS` | `3` | Long-term memory consolidation cadence |
+
+### Autofill
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTOFILL_ENABLED` | `false` | Enable autofill system |
+| `AUTOFILL_WS_PORT` | `8765` | WebSocket port |
+| `AUTOFILL_MAX_CONCURRENCY` | `3` | Parallel autofill tasks |
+| `AUTOFILL_OPS_CHANNEL` | — | Slack channel for ops updates |
+| `AUTOFILL_ALLOWED_DOMAINS` | — | Comma-separated allowed ATS hosts |
+| `AUTOFILL_ASSISTED_UPLOAD` | `true` | Highlight file inputs instead of auto-uploading |
+| `AUTOFILL_CL_PDF_ENABLED` | `true` | Render cover letter to PDF before autofill |
+| `AUTOFILL_FAKE_PROFILE_PATH` | `config/fake_profile.yaml` | Fallback profile when DB has no rows |
+| `AUTOFILL_API_TOKEN` | — | Shared secret for `/autofill/payload` + `/autofill/status` endpoints |
+
+### Vault / Embeddings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VAULT_PATH` | — | Path to Obsidian vault (optional) |
+| `EMBEDDING_MODEL_NAME` | `nomic-embed-text-v1.5` | Embedding model |
+| `EMBEDDING_ENDPOINT_URL` | `http://localhost:1234/v1/embeddings` | LM Studio embeddings endpoint |
+| `VAULT_TOP_K` | `5` | Top-K results per semantic search query |
+| `VAULT_LINK_DEPTH` | `1` | Wikilink traversal depth |
+
+### Multi-agent pipeline
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PIPELINE_PASS_THRESHOLD` | `7.0` | HiringManager score (out of 10) required to accept draft |
+| `PIPELINE_MAX_REVISIONS` | `2` | Maximum Writer→HiringManager revision loops |
+| `SCRAPER_RATE_LIMIT` | `5` | Concurrent company scrape requests |
+| `SCRAPER_TIMEOUT_SECONDS` | `10` | Per-request timeout for company scraper |
+| `COMPANY_CACHE_TTL_HOURS` | `168` | CompanyCache TTL (7 days) |
+
+---
+
+## Setup & quick-start
 
 ### 1. Install dependencies
 
@@ -101,370 +717,67 @@ tests/
 pip install -r requirements.txt
 ```
 
-### 2. Create and configure environment
-
-Copy the environment template and configure your settings:
+### 2. Configure environment
 
 ```bash
 cp env_template.sh env_local.sh
-```
-
-Edit `env_local.sh` with your configuration:
-
-```bash
-# Database Configuration
-export DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/agentic_jobs"
-export ENVIRONMENT="development"
-export DEBUG="true"
-
-# Discovery Configuration
-export DISCOVERY_BASE_URL="https://boards.greenhouse.io"
-export DISCOVERY_SITEMAP_URL="https://boards.greenhouse.io/sitemap_index.xml"
-export MAX_ORGS_PER_RUN="100"
-export REQUESTS_PER_MINUTE="60"
-export REQUEST_TIMEOUT_SECONDS="5"
-export ALLOWED_DOMAINS="boards.greenhouse.io,raw.githubusercontent.com,github.com"
-export ENABLE_GREENHOUSE="true"
-export GITHUB_MAX_AGE_DAYS="3"
-
-# GitHub Data Sources (comma-separated fallback URLs)
-export SIMPLIFY_POSITIONS_URLS="https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json,https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/src/data/positions.json"
-export NEW_GRAD_2026_URLS="https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/.github/scripts/listings.json,https://raw.githubusercontent.com/vanshb03/New-Grad-2026/dev/src/data/positions.json"
-
-# Slack Integration (required for full functionality)
-export SLACK_BOT_TOKEN="xoxb-your-bot-token"
-export SLACK_APP_LEVEL_TOKEN="xapp-your-app-token"
-export SLACK_SIGNING_SECRET="your-signing-secret"
-export SLACK_JOBS_FEED_CHANNEL="#jobs-feed"
-export SLACK_JOBS_DRAFTS_CHANNEL="#jobs-drafts"
-
-# Scheduler Configuration
-export SCHEDULER_WINDOW_START_HOUR_PT="7"
-export SCHEDULER_WINDOW_END_HOUR_PT="23"
-export DIGEST_BATCH_SIZE="20"
-```
-
-> ℹ️ **Multiple URLs** are comma-separated fallbacks; the adapter uses the first reachable endpoint. Keep the `.github/scripts/listings.json` variant first—both repos currently publish their authoritative listings there.
-
-### 3. Load environment and start the API
-
-```bash
-# Load your environment variables (example using env_local.sh)
+# Edit env_local.sh with your DATABASE_URL, Slack tokens, and LLM settings
 source env_local.sh
-# or if you keep secrets in .env:
-set -a && source .env && set +a
+```
 
-# Start the server
+Minimum required vars: `DATABASE_URL`, `SLACK_BOT_TOKEN`, `SLACK_APP_LEVEL_TOKEN`, `SLACK_SIGNING_SECRET`, the four Slack channel IDs.
+
+### 3. Start the server
+
+```bash
 ./start_server.sh
-# OR manually:
-# uvicorn agentic_jobs.main:app --reload --host 0.0.0.0 --port 8000
+# or:
+uvicorn agentic_jobs.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 4. Test the system
+### 4. Verify
 
-#### Health Check
 ```bash
+# Health
 curl http://localhost:8000/healthz
+
+# Trigger a manual discovery run
+curl -X POST http://localhost:8000/api/v1/discover/run \
+  -H 'content-type: application/json' -d '{}'
+# → {"orgs_crawled":3,"jobs_seen":42,"jobs_inserted":18,"domains_scored":6}
 ```
 
-#### Trigger Discovery
+### 5. Detect a careers-page parser (optional)
+
 ```bash
-curl -i -X POST http://127.0.0.1:8000/api/v1/discover/run \
-  -H 'content-type: application/json' \
-  -d '{}'
+python -m agentic_jobs.scripts.detect_site https://www.metacareers.com/jobsearch/
+# Prints inferred parser + options — paste into universal_sites.yaml
 ```
 
-On success, you'll see a JSON summary:
-
-```json
-{
-  "orgs_crawled": 3,
-  "jobs_seen": 42,
-  "jobs_inserted": 18,
-  "domains_scored": 6
-}
-```
-
-#### Test Slack Integration
-```bash
-# Test configuration
-python3 test_slack_config.py
-
-# Test connection
-python3 test_slack_connection.py
-```
-
-Job records, sources, and trust events are persisted in Postgres. If an adapter cannot fetch its data (e.g., GitHub 404), the orchestrator logs a warning and continues with the remaining sources.
-
----
-
-### Autofill Queue (Phase 1)
-
-The autofill workflow runs entirely on your machine. Enable it only if you're comfortable opening job tabs and staging uploads locally.
-
-1. **Turn it on** by setting these env vars (adjust for your setup):
-   ```bash
-   export AUTOFILL_ENABLED="true"
-   export AUTOFILL_WS_PORT="8765"
-   export AUTOFILL_MAX_CONCURRENCY="3"
-   export AUTOFILL_OPS_CHANNEL="C01234567"   # Slack channel for ops updates
-   export AUTOFILL_ALLOWED_DOMAINS="boards.greenhouse.io,jobs.lever.co"
-   export AUTOFILL_FAKE_PROFILE_PATH="config/fake_profile.yaml"
-   export AUTOFILL_ASSISTED_UPLOAD="true"
-   export AUTOFILL_CL_PDF_ENABLED="true"
-    export AUTOFILL_API_TOKEN="local-secret"   # optional shared secret for payload/status API
-   ```
-   Leave `AUTOFILL_AUTOMATION_MODE` off unless you plan to launch a dedicated Chromium profile for strict file-input automation.
-
-2. **Provide a profile snapshot.** Update `config/fake_profile.yaml` (new in this PR) with the details you want autofilled (identity, links, compliance answers). In production the loader falls back to the `profile_*` tables and only uses the YAML file when the DB has no rows.
-
-3. **Store resume PDFs.** Drop your resume variants under `artifacts/profile/resume/` (e.g., `latest.pdf`, `backend.pdf`) and make sure the YAML `files.resume_variants` entries point at those paths. The orchestrator references these when the extension prompts you to select a file during Assisted Upload.
-
-4. **Cover-letter PDFs.** When a cover letter is finalized and you queue autofill, the orchestrator renders the markdown into a minimalist PDF (path configurable via the YAML file). If the ATS exposes a cover-letter text box we paste the text instead of uploading.
-
-5. **Slack channel.** Create a dedicated ops channel (for example `#autofill-ops`) and set `AUTOFILL_OPS_CHANNEL` to its ID. Every queue/open-tabs action posts a short update there plus inside the application thread.
-
-6. **Autofill auto-runs.** When you press “Finalize draft,” we immediately queue and launch autofill (tabs open right away and the extension/Playwright harness starts filling), and the tracker thread plus Autofill Ops channel show `In Progress`/`Ready` updates automatically. The “Queue Autofill” button in the Manage modal is still available for manual retries.
-
-7. **Run all queued.** If any tasks are still left in `queued` (for example, you disabled auto-run or requeued later), the master tracker header shows a “Run N queued” button that launches all remaining queued tasks at once.
-
-8. **Local clients (extension or Playwright harness)** should call:
-   - `GET /api/v1/autofill/payload/<HUMAN_ID>` with header `X-Autofill-Token: $AUTOFILL_API_TOKEN` to retrieve the latest payload JSON.
-   - `POST /api/v1/autofill/status` with `{ "human_id": "APP-2025-012", "status": "in_progress" | "ready" | ... }` to report progress. The API propagates updates to Slack and records them on the `autofill_tasks` row, so the Ops channel and per-application threads stay in sync.
-   These endpoints only activate when `AUTOFILL_ENABLED=true`; omit the header if you leave `AUTOFILL_API_TOKEN` empty.
-
-Autofill is still Phase 1: the browser extension uses Assisted Upload prompts by default, so you'll confirm file picker dialogs manually while all sensitive data stays local.
-
-### Browser Extension (prototype)
-
-- Code lives under `autofill_extension/`. Load it as an unpacked extension from `chrome://extensions` after running `npm install` (not required yet) or simply pointing Chrome at the folder.
-- Configure the local API URL/token from the extension options page so it can reach `GET /payload/<HUMAN_ID>` and `POST /status` on `127.0.0.1`.
-- When the backend launches a JD tab it appends `#ajp_autofill=APP-YYYY-NNN`. The content script detects this fragment, downloads the payload, and fills supported ATS forms.
-  - **Greenhouse**: first/last name, email, phone, base location, LinkedIn/GitHub URLs. Resume inputs are highlighted with the suggested file path for manual upload.
-  - **Workday**: first/last name, email, phone, city, postal code (where present). File inputs are also highlighted for manual upload.
-  - Additional ATS can be added by extending `autofill_extension/content.js`.
-
----
-
-## Configuration Overview
-
-### Core Settings
-| Variable | Description | Default |
-| --- | --- | --- |
-| `DATABASE_URL` | SQLAlchemy connection string | `postgresql+psycopg2://postgres:postgres@localhost:5432/agentic_jobs` |
-| `ENVIRONMENT` | Runtime environment | `development` |
-| `DEBUG` | Enable debug mode | `false` |
-
-### Discovery Settings
-| Variable | Description | Default |
-| --- | --- | --- |
-| `DISCOVERY_BASE_URL` | Base domain for robots + sitemap (Greenhouse) | `https://boards.greenhouse.io` |
-| `DISCOVERY_SITEMAP_URL` | Greenhouse sitemap (use the redirected job boards URL) | `https://job-boards.greenhouse.io/sitemap_index.xml` |
-| `MAX_ORGS_PER_RUN` | Frontier batch size per run | `100` |
-| `REQUESTS_PER_MINUTE` | Rate limiting for HTTP requests | `60` |
-| `REQUEST_TIMEOUT_SECONDS` | HTTP request timeout | `5` |
-| `ALLOWED_DOMAINS` | Allowlist for the Greenhouse adapter's robots enforcement | `boards.greenhouse.io,raw.githubusercontent.com,github.com` |
-| `ENABLE_GREENHOUSE` | `true` to crawl Greenhouse; `false` to skip entirely | `true` |
-| `GITHUB_MAX_AGE_DAYS` | Drop GitHub listings older than this many days | `3` |
-
-### Data Sources
-| Variable | Description | Default |
-| --- | --- | --- |
-| `SIMPLIFY_POSITIONS_URLS` | Comma-separated fallback URLs for Simplify GitHub JSON feeds | Multiple SimplifyJobs URLs |
-| `NEW_GRAD_2026_URLS` | Comma-separated fallback URLs for vanshb03 GitHub JSON feeds | Multiple New-Grad-2026 URLs |
-| `JOB_FILTER_CONFIG_PATH` | Path to the YAML file that controls adapter enablement + keyword filters | `config/job_filters.yaml` |
-| `UNIVERSAL_SITES_CONFIG_PATH` | YAML file that lists custom ATS-powered career sites for the universal adapter | `config/universal_sites.yaml` |
-| `UNIVERSAL_MAX_AGE_DAYS` | Drop universal-adapter jobs older than this age when `posted_at` is available | `7` |
-
-### Slack Integration
-| Variable | Description | Required |
-| --- | --- | --- |
-| `SLACK_BOT_TOKEN` | Bot User OAuth Token (starts with `xoxb-`) | ✅ |
-| `SLACK_APP_LEVEL_TOKEN` | App-Level Token (starts with `xapp-`) | ✅ |
-| `SLACK_SIGNING_SECRET` | Signing Secret for request verification | ✅ |
-| `SLACK_JOBS_FEED_CHANNEL` | Channel for job digests | ✅ |
-| `SLACK_JOBS_DRAFTS_CHANNEL` | Channel for cover letter drafts | ✅ |
-| `SLACK_JOBS_TRACKER_CHANNEL` | Channel where the pinned master tracker message lives | ✅ |
-| `SLACK_JOBS_ARCHIVE_CHANNEL` | Channel that receives archived (rejected/accepted) applications | ✅ |
-
-### Job Filters & Sources
-
-The discovery pipeline reads `config/job_filters.yaml` each run to decide which adapters to use and which titles count as relevant. Customize it per user without touching code:
-
-```yaml
-adapters:
-  greenhouse: true      # enable/disable each adapter
-  simplify: true
-  newgrad2026: true
-
-filters:
-  include_keywords:
-    - software engineer
-    - new grad
-  exclude_keywords:
-    - manager
-    - director
-```
-
-The include/exclude lists are case-insensitive substrings evaluated against every job title before ingestion. Point `JOB_FILTER_CONFIG_PATH` at your own YAML if you keep multiple presets.
-
-### Universal Sites Configuration
-
-Add your own ATS-powered portals (Lever, Workday, etc.) without touching Python by editing `config/universal_sites.yaml` (override path via `UNIVERSAL_SITES_CONFIG_PATH`):
-
-```yaml
-sites:
-  - site_slug: apple
-    display_name: Apple Careers
-    crawl_interval_minutes: 180   # optional, inherits scheduler interval when omitted
-    feeds:
-      - feed_slug: corporate
-        parser: workday            # supported: workday, lever (more coming)
-        options:
-          host: jobs.apple.com
-          tenant: apple
-          site: en-us
-  - site_slug: meta
-    display_name: Meta Careers
-    feeds:
-      - site_url: https://www.metacareers.com/jobsearch/   # auto-detects Workday + options
-```
-
-Each `feed` becomes a crawl frontier (`site_slug:feed_slug`). You can still provide explicit parser/options for full control, but if you only know the careers URL the adapter will fetch it once, detect the underlying ATS (Lever/Workday today), and store the resolved configuration for the run. Per-feed parser options map directly to the underlying ATS client, so you can run multiple passes against the same domain (e.g., Workday corporate + Lever internship). Set `crawl_interval_minutes` to throttle specific sites while the rest continue at the global cadence. Configure `UNIVERSAL_MAX_AGE_DAYS` to skip stale postings whenever the feed exposes `posted_at`.
-
-### LLM Drafting
-| Variable | Description | Example |
-| --- | --- | --- |
-| `LLM_BACKEND` | `qwen` (DashScope) or `ollama` (OpenAI-compatible) | `ollama` |
-| `LLM_MODEL_NAME` | Backend-specific model name | `Qwen3-235B-A22B`, `llama3.1:8b-instruct` |
-| `LLM_ENDPOINT_URL` | Full inference URL | `https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation` / `https://ollama.com/v1/chat/completions` |
-| `LLM_API_KEY` | Primary API key (DashScope or other OpenAI-style providers) | `sk-...` |
-| `OLLAMA_API_KEY` | Optional fallback key for Ollama Cloud | `ollama-secret` |
-| `LLM_TIMEOUT_SECONDS` | Request timeout in seconds | `60` |
-
-### Scheduler Settings
-| Variable | Description | Default |
-| --- | --- | --- |
-| `SCHEDULER_WINDOW_START_HOUR_PT` | Start hour for discovery (PT timezone) | `7` |
-| `SCHEDULER_WINDOW_END_HOUR_PT` | End hour for discovery (PT timezone) | `23` |
-| `DIGEST_BATCH_SIZE` | Number of jobs per digest | `20` |
-
-For local development without Greenhouse access, set `ENABLE_GREENHOUSE=false` and rely solely on the GitHub adapters.
-
----
-
-## Discovery Architecture
-
-### SourceAdapter protocol
-
-Every adapter implements `services/discovery/base.SourceAdapter`:
-
-- `discover()` → seeds organization slugs (Greenhouse) or pseudo-slugs (GitHub).
-- `list_jobs(org_slug)` → returns lightweight `JobRef` objects (title, location, canonical ID stub, detail URL, metadata).
-- `fetch_job_detail(job_ref)` → retrieves full HTML (Greenhouse) or synthesizes HTML from JSON (GitHub).
-- `canonical_id(job_ref)` → deterministic canonical identifier used for dedupe.
-- `job_source_type` / `submission_mode` → persisted on `Job`/`JobSource`.
-- `uses_frontier` → toggle to skip the DB frontier (GitHub adapters set this `False`).
-
-The orchestrator loops through each adapter, enforces dedupe windows, creates `Job`, `JobSource`, `TrustEvent`, and updates the summary counts.
-
-### Dedup logic
-
-1. If canonical ID exists in the last 30 days → skip.
-2. Else if SHA-1 hash (title + company + JD) exists in the last 30 days → skip.
-3. Otherwise, insert new `Job` + `JobSource`, create `TrustEvent`.
-
-### GitHub adapters
-
-- Request each URL listed in `SIMPLIFY_POSITIONS_URLS` / `NEW_GRAD_2026_URLS` until one returns HTTP 200.
-- Support the following shapes:
-  - `{ "listings": [ ... ] }`
-  - `{ "positions": [ ... ] }`
-  - `{ "companies": [{ ... "roles": [ ... ] }] }`
-  - Raw `list` of dicts
-- Extract relevant fields (company, title, url, location, requirements) and `date_posted`/`posted`/`timestamp` information (ISO 8601, numeric epoch, or simple date formats).
-- Filter by `GITHUB_MAX_AGE_DAYS` (skips stale listings while still storing detection metadata).
-- Generate synthetic JD HTML with sections for company, location, requirements, etc.
-
----
-
-## Database Outputs
-
-- **`jobs`**: normalized job data (title, company, JD text, requirements[], canonical ID, hash, domain root).
-- **`job_sources`**: raw payload + metadata (source type, domain, canonical hash).
-- **`trust_events`**: stubbed trust result per domain (auto-safe for downstream scoring).
-- **`frontier_orgs`**: persisted Greenhouse slug frontier (not used by GitHub adapters).
-
-All tables are defined in `agentic_jobs/db/models.py`. Alembic migration `alembic/versions/4dd2f4e2a91b_add_frontier_orgs.py` adds the frontier table introduced in MVPart 2.
-
----
-
-## Testing
-
-Run the full suite:
+### 6. Run the test suite
 
 ```bash
 pytest -q
 ```
 
-Notable coverage:
-
-| Test module | Purpose |
-| --- | --- |
-| `tests/discovery/test_frontier_greenhouse.py` | Frontier seeding, multi-adapter orchestration, dedupe, trust events |
-| `tests/discovery/test_github_adapter.py` | Fallback URLs, listings schema support, old-job filtering |
+| Test module | Coverage |
+|-------------|---------|
+| `tests/discovery/test_frontier_greenhouse.py` | Frontier seeding, dedup, trust events |
+| `tests/discovery/test_github_adapter.py` | Fallback URLs, schema variants, age filter |
 | `tests/sources/test_normalize.py` | HTML normalization and hashing |
+| `tests/slack/test_actions_save_to_tracker.py` | Application creation, ID generation |
+| `tests/slack/test_digest_render.py` | Digest block structure |
+| `tests/slack/test_workflows.py` | End-to-end workflow integration |
 
-Fixtures in `tests/fixtures` include static examples for sitemap, JSON feeds, HTML detail pages, etc.
+### 7. Configure the Slack app
 
----
-
-## Operational Notes
-
-- **Restart required** after changing `.env`; `pydantic-settings` caches values in `agentic_jobs.config.settings`.
-- **Logging**: Uvicorn prints adapter warnings when a source skips due to 4xx/5xx errors.
-- **Network access**: Crawlers rely on outbound HTTPS access to `boards.greenhouse.io` and `raw.githubusercontent.com`. If blocked, adapters raise `DiscoveryError` and the orchestrator skips them.
-- **Limiting scope**: Adjust `MAX_ORGS_PER_RUN` (Greenhouse) and `GITHUB_MAX_AGE_DAYS` (GitHub) for local experimentation.
+See `SLACK_SETUP.md` for the full App Manifest, OAuth scopes, Socket Mode setup, and ngrok / production URL configuration.
 
 ---
 
-## Current Implementation Status
+### Notes
 
-### ✅ **Fully Implemented**
-- **Complete database schema** — `Job`, `JobSource`, `Application`, `Artifact`, `TrustEvent`, `AutofillTask`, `PipelineRun`, `AgentMemory`, `VaultEmbedding`, `CompanyCache`, and more
-- **Discovery system** with Greenhouse frontier crawler and GitHub JSON-feed adapters
-- **Job normalization and deduplication** with 30-day canonical-ID and SHA-1 hash windows
-- **Trust evaluation system** with per-domain scoring and Slack-based domain review
-- **Slack integration** with interactive components, Socket Mode, digest posting, and threaded cover-letter workflows
-- **Job scoring system** with deterministic rules and per-application score recording
-- **Application tracking** with human-readable `APP-YYYY-NNN` IDs and pinned master-tracker view
-- **Scheduler system** with configurable PT time windows and 3-hour discovery cycles
-- **Cover letter generation** — full LLM workflow (Qwen / Ollama), profile-aware prompt builder, per-thread feedback-driven regen, and version history under `artifacts/`
-- **Feedback system** — iterative draft feedback loop with automatic regen and finalize/lock flow
-- **Document rendering** — DOCX cover-letter export with configurable style kit (`cover_letter_kit.yaml`)
-- **Autofill pipeline** — `AutofillTask` model, queue management, Slack Ops-channel updates, and browser-extension payload/status API
-- **Pipeline run tracking** — `PipelineRun` rows with status, mode (`quick_draft` / `full_pipeline`), and timing metadata
-- **API endpoints** for discovery, applications, trust, Slack actions, drafts, feedback, and autofill
-
-### 🚧 **Planned / In Progress**
-- **Profile management API** — database models exist (`profile_*` tables); REST endpoints pending
-- **Additional ATS adapters** — Lever and Workday parsers are scaffolded; broader coverage coming
-- **Enhanced ranking** — configurable scoring weights and ML-based signal blending
-
-## Quick Start
-
-1. **Set up environment**: Copy `env_template.sh` to `env_local.sh` and configure
-2. **Start database**: Ensure PostgreSQL is running
-3. **Load environment**: `source env_local.sh`
-4. **Start server**: `./start_server.sh`
-5. **Test discovery**: `curl -X POST http://127.0.0.1:8000/api/v1/discover/run`
-6. **Configure Slack**: Follow `SLACK_SETUP.md` for full integration
-
-The system is production-ready for job discovery, scoring, and Slack-based application tracking. Cover letter generation and advanced features are in development.
-Need a quick peek at what parser a URL will use? Run the detector helper:
-
-```bash
-python -m agentic_jobs.scripts.detect_site https://www.metacareers.com/jobsearch/
-```
-
-It prints the inferred parser + options, so you can paste them into `universal_sites.yaml` if you want to override the automatic detection.
+- **Restart required** after changing `.env` — pydantic-settings caches values at import time.
+- Set `ENABLE_GREENHOUSE=false` and `GITHUB_MAX_AGE_DAYS=7` for local dev without Greenhouse access.
+- The autofill browser extension lives under `autofill_extension/` — load as an unpacked extension from `chrome://extensions` and configure the local API URL + token from the extension options page.
+- `config/fake_profile.yaml` is the fallback autofill profile when no `ProfileIdentity` rows exist in the database.
