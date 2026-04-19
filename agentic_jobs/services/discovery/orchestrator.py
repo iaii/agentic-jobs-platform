@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Sequence
 from urllib.parse import urlparse
 
@@ -58,7 +58,7 @@ async def _run_for_adapter(
 ) -> tuple[DiscoverySummary, set[str]]:
     summary = DiscoverySummary()
     domain_cache: Dict[str, TrustResult] = {}
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
 
     if getattr(adapter, "uses_frontier", True):
         await _seed_frontier(session, adapter)
@@ -77,7 +77,15 @@ async def _run_for_adapter(
                 if inserted:
                     summary.jobs_inserted += 1
 
-            frontier.last_crawled_at = datetime.utcnow()
+            now = datetime.now(timezone.utc)
+            frontier.last_crawled_at = now
+            interval_getter = getattr(adapter, "get_crawl_interval_minutes", None)
+            if callable(interval_getter):
+                interval_minutes = interval_getter(frontier.org_slug)
+                if interval_minutes and interval_minutes > 0:
+                    frontier.muted_until = now + timedelta(minutes=interval_minutes)
+                else:
+                    frontier.muted_until = None
     else:
         slugs = await adapter.discover()
         if not slugs:
@@ -111,7 +119,7 @@ async def _seed_frontier(session: Session, adapter: SourceAdapter) -> None:
     if not new_slugs:
         return
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session.add_all(
         [
             models.FrontierOrg(
@@ -127,7 +135,7 @@ async def _seed_frontier(session: Session, adapter: SourceAdapter) -> None:
 
 
 def _select_frontier(session: Session, adapter: SourceAdapter, limit: int) -> list[models.FrontierOrg]:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     stmt = (
         select(models.FrontierOrg)
         .where(models.FrontierOrg.source == adapter.source_name)
@@ -185,6 +193,10 @@ async def _ingest_job(
 
     source_type = getattr(adapter, "job_source_type", JobSourceType.COMPANY)
     submission_mode = getattr(adapter, "submission_mode", SubmissionMode.DEEPLINK)
+    source_label = job_ref.metadata.get("source_label")
+    if not isinstance(source_label, str) or not source_label.strip():
+        source_label = getattr(adapter, "source_display_name", getattr(adapter, "source_name", "unknown"))
+    source_label = source_label.strip()
 
     job_source = models.JobSource(
         source_type=source_type,
@@ -192,6 +204,7 @@ async def _ingest_job(
         company_name=company_name,
         domain_root=domain_root,
         raw_payload=raw_payload,
+        source_name=source_label,
         hash=job_hash,
     )
 
@@ -201,12 +214,13 @@ async def _ingest_job(
         location=job_ref.location,
         url=job_ref.detail_url,
         source_type=source_type,
+        source_name=source_label,
         domain_root=domain_root,
         submission_mode=submission_mode,
         jd_text=jd_text,
         requirements=requirements,
         job_id_canonical=canonical_id,
-        scraped_at=datetime.utcnow(),
+        scraped_at=datetime.now(timezone.utc),
         hash=job_hash,
     )
 

@@ -35,6 +35,7 @@ def test_job_model_validation() -> None:
         location="New York, NY",
         url="https://jobs.example.com/backend-engineer",
         source_type=JobSourceType.GREENHOUSE,
+        source_name="Greenhouse",
         domain_root="example.com",
         submission_mode=SubmissionMode.ATS,
         jd_text="Responsibilities include building APIs.",
@@ -51,6 +52,7 @@ def test_job_source_model_validation() -> None:
     job_source = JobSourceModel(
         id=uuid4(),
         source_type=JobSourceType.GREENHOUSE,
+        source_name="Greenhouse",
         source_url="https://boards.greenhouse.io/example/jobs/12345",
         company_name="Example Corp",
         domain_root="greenhouse.io",

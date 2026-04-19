@@ -34,6 +34,7 @@ DEFAULT_ADAPTERS = {
     "greenhouse": True,
     "simplify": True,
     "newgrad2026": True,
+    "universal": True,
 }
 
 

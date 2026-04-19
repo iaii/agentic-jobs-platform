@@ -20,6 +20,7 @@ class DigestRow:
     url: str
     score: float
     rationale: str
+    source_label: str
 
 
 def build_digest_blocks(rows: Iterable[DigestRow]) -> list[dict]:
@@ -29,6 +30,7 @@ def build_digest_blocks(rows: Iterable[DigestRow]) -> list[dict]:
             f"*{idx}. {row.company}*",
             f"{row.title} · {row.location}",
             f"{_format_score_chip(row.score)} — _{row.rationale}_",
+            f"*Source:* {row.source_label}",
         ]
         blocks.append(
             {

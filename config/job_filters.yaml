@@ -2,6 +2,7 @@ adapters:
   greenhouse: true
   simplify: true
   newgrad2026: true
+  universal: true
 
 filters:
   include_keywords:

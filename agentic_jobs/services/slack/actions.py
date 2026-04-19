@@ -4,10 +4,8 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 from uuid import UUID
-from urllib.parse import unquote, urlparse
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +20,10 @@ from agentic_jobs.core.enums import (
 )
 from agentic_jobs.db import models
 from agentic_jobs.db.session import SessionLocal
+from agentic_jobs.services.autofill import AutofillMode, AutofillOrchestrator, AutofillError
+from agentic_jobs.services.autofill.types import AutofillTaskStatus
+from agentic_jobs.services.artifacts.utils import ARTIFACTS_DIR, load_artifact_text
+from agentic_jobs.services.agents.coordinator import PipelineCoordinator, PipelineCoordinatorError
 from agentic_jobs.services.drafts.generator import DraftGenerator, DraftGeneratorError
 from agentic_jobs.services.ranking import score_job
 from agentic_jobs.services.applications.stage import ARCHIVED_STAGES, apply_stage, stage_display
@@ -31,7 +33,6 @@ from agentic_jobs.services.llm.runner import LlmBackendError
 
 
 LOGGER = logging.getLogger(__name__)
-ARTIFACTS_DIR = Path("artifacts")
 TRACKER_STAGE_OPTIONS: list[ApplicationStage] = [
     ApplicationStage.INTERESTED,
     ApplicationStage.COVER_LETTER_IN_PROGRESS,
@@ -116,7 +117,13 @@ def _build_control_block(application_id: UUID) -> dict[str, Any]:
         "elements": [
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "Generate draft"},
+                "text": {"type": "plain_text", "text": "Quick Draft"},
+                "action_id": "drafts_quick",
+                "value": payload,
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Generate CL"},
                 "action_id": "drafts_generate",
                 "value": payload,
                 "style": "primary",
@@ -201,42 +208,6 @@ def _stage_select_options() -> list[dict[str, Any]]:
     ]
 
 
-def _uri_to_path(uri: str | None) -> Path | None:
-    if not uri:
-        return None
-    parsed = urlparse(uri)
-    if parsed.scheme != "file":
-        return None
-    return Path(unquote(parsed.path))
-
-
-def _load_artifact_text(
-    session: Session,
-    application_id: UUID,
-    artifact_type: ArtifactType,
-    *,
-    latest: bool = True,
-) -> str | None:
-    stmt = (
-        select(models.Artifact)
-        .where(
-            models.Artifact.application_id == application_id,
-            models.Artifact.type == artifact_type,
-        )
-        .order_by(models.Artifact.created_at.desc() if latest else models.Artifact.created_at)
-        .limit(1)
-    )
-    artifact = session.execute(stmt).scalar_one_or_none()
-    if not artifact:
-        return None
-    path = _uri_to_path(artifact.uri)
-    if not path or not path.exists():
-        return None
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-
 
 def _truncate_text(text: str, max_chars: int = 2500) -> str:
     if len(text) <= max_chars:
@@ -254,6 +225,36 @@ def _build_text_block(title: str, body: str | None) -> dict[str, Any]:
         "type": "section",
         "text": {"type": "mrkdwn", "text": f"*{title}*\n{content}"},
     }
+
+
+def _manage_action_buttons(application: models.Application) -> list[dict[str, Any]]:
+    payload = _encode_action_value({"application_id": str(application.id)})
+    buttons = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Quick Draft"},
+            "action_id": "drafts_quick",
+            "value": payload,
+        },
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Generate CL"},
+            "action_id": "drafts_generate",
+            "style": "primary",
+            "value": payload,
+        }
+    ]
+    if application.stage != ApplicationStage.COVER_LETTER_FINALIZED:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Finalize"},
+                "action_id": "drafts_finalize",
+                "style": "danger",
+                "value": _encode_action_value({"application_id": str(application.id)}),
+            }
+        )
+    return buttons
 
 
 def _build_manage_view(
@@ -295,22 +296,7 @@ def _build_manage_view(
         {
             "type": "actions",
             "block_id": "manage_actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Generate"},
-                    "action_id": "drafts_generate",
-                    "style": "primary",
-                    "value": _encode_action_value({"application_id": str(application.id)}),
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Finalize"},
-                    "action_id": "drafts_finalize",
-                    "style": "danger",
-                    "value": _encode_action_value({"application_id": str(application.id)}),
-                },
-            ],
+            "elements": _manage_action_buttons(application),
         },
         _build_text_block("Cover letter", cover_letter),
         _build_text_block("Job description", jd_snapshot or job.jd_text),
@@ -324,6 +310,38 @@ def _build_manage_view(
             ],
         },
     ]
+
+    if settings.autofill_enabled and application.stage == ApplicationStage.COVER_LETTER_FINALIZED:
+        autofill_payload = _encode_action_value({"application_id": str(application.id)})
+        autofill_elements = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Queue Application"},
+                "action_id": "autofill_queue",
+                "style": "primary",
+                "value": autofill_payload,
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Autofill Application"},
+                "action_id": "autofill_start",
+                "value": autofill_payload,
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Autofill Queue"},
+                "action_id": "autofill_run_all",
+                "value": json.dumps({"source": "manage_view"}),
+            },
+        ]
+        blocks.insert(
+            3,
+            {
+                "type": "actions",
+                "block_id": "autofill_actions",
+                "elements": autofill_elements,
+            },
+        )
 
     title_text = application.human_id[:24]
     return {
@@ -359,8 +377,8 @@ async def _post_archive_summary(
         f"<{job.url}|Job link> · `{job.job_id_canonical}`"
     )
 
-    cover_letter = _load_artifact_text(session, application.id, ArtifactType.COVER_LETTER_VERSION)
-    jd_snapshot = _load_artifact_text(session, application.id, ArtifactType.JD_SNAPSHOT)
+    cover_letter = load_artifact_text(session, application.id, ArtifactType.COVER_LETTER_VERSION)
+    jd_snapshot = load_artifact_text(session, application.id, ArtifactType.JD_SNAPSHOT)
 
     blocks: list[dict[str, Any]] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": header_text}},
@@ -399,7 +417,13 @@ def _queue_stage_side_effects(application_id: UUID, stage: ApplicationStage, act
             await slack_client.aclose()
             session.close()
 
-    asyncio.create_task(_run())
+    task = asyncio.create_task(_run())
+    # Prevent the task from being silently GC'd before it completes; log any unexpected errors.
+    task.add_done_callback(
+        lambda t: LOGGER.exception("Stage side-effects task raised unexpectedly", exc_info=t.exception())
+        if not t.cancelled() and t.exception()
+        else None
+    )
 
 
 def _next_human_id(session: Session) -> str:
@@ -531,8 +555,8 @@ async def handle_save_to_tracker(
                 user=user_id,
                 text=f"Queued `{human_id}` with score {score_result.score:.2f}.",
             )
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001
+            LOGGER.warning("Failed to send ephemeral confirmation to user %s", user_id)
     return {"text": f"Queued `{human_id}` with score {score_result.score:.2f}."}
 
 
@@ -554,8 +578,8 @@ async def handle_application_manage_action(
     if not job:
         raise SlackActionError("Application missing job reference.")
 
-    cover_letter = _load_artifact_text(session, application.id, ArtifactType.COVER_LETTER_VERSION)
-    jd_snapshot = _load_artifact_text(session, application.id, ArtifactType.JD_SNAPSHOT)
+    cover_letter = load_artifact_text(session, application.id, ArtifactType.COVER_LETTER_VERSION)
+    jd_snapshot = load_artifact_text(session, application.id, ArtifactType.JD_SNAPSHOT)
 
     view = _build_manage_view(application, job, cover_letter, jd_snapshot)
     await slack_client.open_view(trigger_id, view)
@@ -590,13 +614,12 @@ async def handle_needs_review_approve(
     )
     try:
         session.merge(whitelist_entry)
+        domain.status = DomainReviewStatus.APPROVED
+        domain.resolved_at = now_utc
+        session.commit()
     except IntegrityError:
         session.rollback()
         raise SlackActionError("Failed to insert whitelist entry.")
-
-    domain.status = DomainReviewStatus.APPROVED
-    domain.resolved_at = now_utc
-    session.commit()
 
     channel_id = payload.get("channel", {}).get("id")
     message_ts = (payload.get("message") or {}).get("ts")
@@ -679,6 +702,7 @@ async def handle_drafts_generate_action(
     session: Session,
     slack_client: SlackClient,
 ) -> dict[str, Any]:
+    """Quick Draft — single-pass, current DraftGenerator behavior."""
     action = (payload.get("actions") or [])[0]
     application_id = _parse_application_action_value(action.get("value"))
     generator = DraftGenerator(session, slack_client)
@@ -688,7 +712,31 @@ async def handle_drafts_generate_action(
     except (DraftGeneratorError, LlmBackendError) as exc:
         raise SlackActionError(str(exc)) from exc
     await _refresh_tracker(session, slack_client)
-    return {"text": f"Generating cover-letter draft for `{author}`."}
+    return {"text": f"Quick draft generating for `{author}`."}
+
+
+async def handle_drafts_pipeline_action(
+    payload: dict[str, Any],
+    session: Session,
+    slack_client: SlackClient,
+) -> dict[str, Any]:
+    """Generate CL — full multi-agent pipeline (Researcher → Writer → HM review loop)."""
+    action = (payload.get("actions") or [])[0]
+    application_id = _parse_application_action_value(action.get("value"))
+    author = _extract_user_name(payload)
+    coordinator = PipelineCoordinator(session, slack_client)
+    try:
+        result = await coordinator.run(
+            application_id,
+            author=author,
+            post_to_slack=True,
+        )
+    except (PipelineCoordinatorError, LlmBackendError) as exc:
+        raise SlackActionError(str(exc)) from exc
+    await _refresh_tracker(session, slack_client)
+    final_score = result.review_history[-1].score if result.review_history else None
+    score_str = f" | Score: {final_score}/10" if final_score is not None else ""
+    return {"text": f"Cover letter generated for `{author}`{score_str}."}
 
 
 async def handle_drafts_finalize_action(
@@ -705,7 +753,147 @@ async def handle_drafts_finalize_action(
     except DraftGeneratorError as exc:
         raise SlackActionError(str(exc)) from exc
     await _refresh_tracker(session, slack_client)
+    if settings.autofill_enabled:
+        try:
+            await _handle_autofill_action(
+                payload,
+                session,
+                slack_client,
+                mode=AutofillMode.AUTOFILL,
+                enforce_stage=False,
+                quiet=True,
+            )
+        except SlackActionError:
+            LOGGER.debug("Auto-queue after finalize failed for %s", application_id)
     return {"text": f"Marked draft as ready. {summary}"}
+
+
+async def _handle_autofill_action(
+    payload: dict[str, Any],
+    session: Session,
+    slack_client: SlackClient,
+    *,
+    mode: AutofillMode,
+    enforce_stage: bool = True,
+    quiet: bool = False,
+    auto_start: bool = True,
+) -> dict[str, Any]:
+    if not settings.autofill_enabled:
+        raise SlackActionError("Autofill is disabled.")
+    action = (payload.get("actions") or [])[0]
+    application_id = _parse_application_action_value(action.get("value"))
+    application = session.get(models.Application, application_id)
+    if not application:
+        raise SlackActionError("Application not found.")
+    if enforce_stage and application.stage != ApplicationStage.COVER_LETTER_FINALIZED:
+        raise SlackActionError("Autofill is available once the cover letter is finalized.")
+    orchestrator = AutofillOrchestrator(settings)
+    actor = _extract_user_name(payload)
+    task_stmt = (
+        select(models.AutofillTask)
+        .where(models.AutofillTask.application_id == application.id)
+        .order_by(models.AutofillTask.created_at.desc())
+        .limit(1)
+    )
+    existing_task = session.execute(task_stmt).scalar_one_or_none()
+
+    if not auto_start:
+        if existing_task and existing_task.status == AutofillTaskStatus.QUEUED:
+            if quiet:
+                return {}
+            return {"text": f"`{application.human_id}` already queued for autofill."}
+    elif mode is AutofillMode.AUTOFILL and existing_task and existing_task.status == AutofillTaskStatus.QUEUED:
+        if await orchestrator.run_pending_task(session, existing_task, slack_client):
+            if quiet:
+                return {}
+            return {"text": f"Autofill started for `{application.human_id}`."}
+
+    try:
+        result = await orchestrator.queue_application(
+            session,
+            application,
+            slack_client,
+            mode=mode,
+            actor=actor,
+            auto_start=auto_start,
+        )
+    except AutofillError as exc:
+        raise SlackActionError(str(exc)) from exc
+
+    if quiet:
+        return {}
+    if result.status is AutofillTaskStatus.IN_PROGRESS:
+        return {"text": f"Autofill started for `{application.human_id}`."}
+    if result.status is AutofillTaskStatus.QUEUED:
+        return {"text": f"Queued `{application.human_id}` for autofill."}
+    if result.status is AutofillTaskStatus.SKIPPED:
+        return {"text": result.message}
+    return {"text": f"Autofill blocked: {result.message}"}
+
+
+async def handle_autofill_queue_action(
+    payload: dict[str, Any],
+    session: Session,
+    slack_client: SlackClient,
+) -> dict[str, Any]:
+    return await _handle_autofill_action(
+        payload,
+        session,
+        slack_client,
+        mode=AutofillMode.AUTOFILL,
+        auto_start=False,
+    )
+
+
+async def handle_autofill_start_action(
+    payload: dict[str, Any],
+    session: Session,
+    slack_client: SlackClient,
+) -> dict[str, Any]:
+    return await _handle_autofill_action(
+        payload,
+        session,
+        slack_client,
+        mode=AutofillMode.AUTOFILL,
+        auto_start=True,
+    )
+
+
+async def handle_autofill_open_tabs_action(
+    payload: dict[str, Any],
+    session: Session,
+    slack_client: SlackClient,
+) -> dict[str, Any]:
+    return await _handle_autofill_action(payload, session, slack_client, mode=AutofillMode.OPEN_TABS)
+
+
+async def handle_autofill_run_all_action(
+    payload: dict[str, Any],
+    session: Session,
+    slack_client: SlackClient,
+) -> dict[str, Any]:
+    if not settings.autofill_enabled:
+        raise SlackActionError("Autofill is disabled.")
+    tasks = list(
+        session.execute(
+            select(models.AutofillTask)
+            .where(models.AutofillTask.status == AutofillTaskStatus.QUEUED)
+            .order_by(models.AutofillTask.created_at)
+        ).scalars()
+    )
+    if not tasks:
+        return {"text": "No queued applications to run."}
+    orchestrator = AutofillOrchestrator(settings)
+    launched = 0
+    for task in tasks:
+        try:
+            if await orchestrator.run_pending_task(session, task, slack_client):
+                launched += 1
+        except AutofillError:
+            LOGGER.exception("Failed to start autofill task %s", task.id)
+    if launched == 0:
+        return {"text": "No queued applications available to launch."}
+    return {"text": f"Launching {launched} queued application(s)."}
 
 
 async def handle_application_stage_submit(
@@ -778,12 +966,22 @@ async def handle_interactive_request(
             return await handle_needs_review_approve(payload, session, slack_client)
         if action_id == "needs_review_reject":
             return await handle_needs_review_reject(payload, session, slack_client)
-        if action_id == "drafts_generate":
+        if action_id == "drafts_quick":
             return await handle_drafts_generate_action(payload, session, slack_client)
+        if action_id == "drafts_generate":
+            return await handle_drafts_pipeline_action(payload, session, slack_client)
         if action_id == "drafts_finalize":
             return await handle_drafts_finalize_action(payload, session, slack_client)
         if action_id == "application_manage":
             return await handle_application_manage_action(payload, session, slack_client)
+        if action_id == "autofill_queue":
+            return await handle_autofill_queue_action(payload, session, slack_client)
+        if action_id == "autofill_start":
+            return await handle_autofill_start_action(payload, session, slack_client)
+        if action_id == "autofill_open_tabs":
+            return await handle_autofill_open_tabs_action(payload, session, slack_client)
+        if action_id == "autofill_run_all":
+            return await handle_autofill_run_all_action(payload, session, slack_client)
 
         raise SlackActionError(f"Unknown action: {action_id}")
 

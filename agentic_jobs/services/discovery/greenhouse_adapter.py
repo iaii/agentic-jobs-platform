@@ -33,6 +33,7 @@ LD_JSON_RE = re.compile(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</sc
 
 class GreenhouseAdapter(SourceAdapter):
     source_name = "greenhouse"
+    source_display_name = "Greenhouse"
     job_source_type = JobSourceType.GREENHOUSE
     submission_mode = SubmissionMode.ATS
     USER_AGENT = "AgenticJobsDiscoveryBot/0.1"

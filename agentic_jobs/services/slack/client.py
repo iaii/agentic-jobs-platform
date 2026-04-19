@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, MutableMapping, Optional
-
-import httpx
+import mimetypes
 import ssl
+
 import certifi
+import httpx
 
 
 class SlackError(RuntimeError):
@@ -31,7 +33,6 @@ class SlackClient:
     ) -> None:
         headers = {
             "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json; charset=utf-8",
         }
         self._owns_client = client is None
         if client is not None:
@@ -108,6 +109,37 @@ class SlackClient:
     async def delete_message(self, channel: str, ts: str) -> SlackResponse:
         payload: MutableMapping[str, Any] = {"channel": channel, "ts": ts}
         return await self._call("chat.delete", payload)
+
+    async def upload_file(
+        self,
+        *,
+        channel: str,
+        file_path: Path,
+        filename: str | None = None,
+        title: str | None = None,
+        initial_comment: str | None = None,
+        thread_ts: str | None = None,
+    ) -> SlackResponse:
+        data: MutableMapping[str, Any] = {"channels": channel}
+        if initial_comment:
+            data["initial_comment"] = initial_comment
+        if thread_ts:
+            data["thread_ts"] = thread_ts
+        if title:
+            data["title"] = title
+        upload_name = filename or file_path.name
+        mime_type = mimetypes.guess_type(upload_name)[0] or "application/octet-stream"
+        with file_path.open("rb") as file_handle:
+            files = {"file": (upload_name, file_handle, mime_type)}
+            try:
+                response = await self._client.post("/files.upload", data=data, files=files)
+                response.raise_for_status()
+                payload = response.json()
+                if not payload.get("ok", False):
+                    raise SlackError(payload.get("error", "unknown_error"))
+                return SlackResponse(ok=True, data=payload)
+            except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+                raise SlackError(str(exc)) from exc
 
     async def post_ephemeral(
         self,

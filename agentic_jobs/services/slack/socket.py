@@ -82,7 +82,12 @@ async def _process_event(payload: dict[str, Any]) -> None:
 async def _handle_socket_request(client: SocketModeClient, req: SocketModeRequest) -> None:
     if req.type == "events_api":
         await client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
-        asyncio.create_task(_process_event(req.payload))
+        task = asyncio.create_task(_process_event(req.payload))
+        task.add_done_callback(
+            lambda t: LOGGER.exception("Event task raised unexpectedly", exc_info=t.exception())
+            if not t.cancelled() and t.exception()
+            else None
+        )
         return
     if req.type != "interactive":
         await client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
@@ -119,7 +124,12 @@ async def _handle_socket_request(client: SocketModeClient, req: SocketModeReques
         LOGGER.warning("Unsupported payload container type: %s", type(payload_container))
         return
 
-    asyncio.create_task(_process_interaction(payload))
+    task = asyncio.create_task(_process_interaction(payload))
+    task.add_done_callback(
+        lambda t: LOGGER.exception("Interaction task raised unexpectedly", exc_info=t.exception())
+        if not t.cancelled() and t.exception()
+        else None
+    )
 
 
 async def start_socket_mode() -> None:

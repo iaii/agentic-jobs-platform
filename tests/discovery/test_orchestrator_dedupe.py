@@ -15,6 +15,7 @@ def _create_job(session, **overrides):
         "location": "Remote",
         "url": "https://example.com/jobs/123",
         "source_type": JobSourceType.COMPANY,
+        "source_name": "Example Source",
         "domain_root": "example.com",
         "submission_mode": SubmissionMode.DEEPLINK,
         "jd_text": "Build services.",

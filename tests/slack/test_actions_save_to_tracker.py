@@ -36,7 +36,7 @@ class DummySlackClient:
 def test_handle_save_to_tracker_creates_application(sqlite_session, monkeypatch):
     monkeypatch.setattr(
         "agentic_jobs.services.slack.actions.settings",
-        SimpleNamespace(slack_jobs_drafts_channel="CDRAFT"),
+        SimpleNamespace(slack_jobs_drafts_channel="CDRAFT", slack_jobs_tracker_channel="CTRACK"),
     )
     job = models.Job(
         id=uuid4(),
@@ -45,6 +45,7 @@ def test_handle_save_to_tracker_creates_application(sqlite_session, monkeypatch)
         location="Remote",
         url="https://example.com/job",
         source_type=JobSourceType.GREENHOUSE,
+        source_name="Greenhouse",
         domain_root="example.com",
         submission_mode=SubmissionMode.ATS,
         jd_text="This is a new grad backend role.",
@@ -77,7 +78,7 @@ def test_handle_save_to_tracker_creates_application(sqlite_session, monkeypatch)
     assert "APP-" in response["text"]
     assert application.human_id.startswith("APP-")
     assert application.slack_channel_id == "CDRAFT"
-    assert application.slack_thread_ts == "1700000000.222222"
+    assert application.slack_thread_ts == "1700000000.111111"
     assert client.message_calls[0]["channel"] == "CDRAFT"
     assert client.thread_calls
     assert client.thread_calls[0]["thread_ts"] == "1700000000.111111"

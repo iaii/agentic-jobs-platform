@@ -94,10 +94,12 @@ class GithubPositionsAdapter(SourceAdapter):
         source_name: str,
         slug: str,
         data_urls: Sequence[str],
+        display_name: str | None = None,
         client: httpx.AsyncClient | None = None,
         rate_limiter: AsyncRateLimiter | None = None,
     ) -> None:
         self.source_name = source_name
+        self.source_display_name = display_name or source_name.title()
         self._slug = slug
         self._data_urls = [url for url in data_urls if url]
         self._timeout = httpx.Timeout(settings.request_timeout_seconds)
@@ -126,7 +128,7 @@ class GithubPositionsAdapter(SourceAdapter):
         data = await self._fetch_positions()
         items = list(self._flatten_positions(data))
         jobs: list[JobRef] = []
-        now = datetime.utcnow().replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
         for item in items:
             posted_at = self._extract_posted_at(item)
             if posted_at is None:

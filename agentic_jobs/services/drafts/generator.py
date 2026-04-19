@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -8,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from agentic_jobs.config import settings
 from agentic_jobs.core.enums import (
     ApplicationStage,
     ApplicationStatus,
@@ -15,19 +18,23 @@ from agentic_jobs.core.enums import (
     FeedbackRole,
 )
 from agentic_jobs.db import models
+from agentic_jobs.services.artifacts.utils import ARTIFACTS_DIR, load_artifact_text
 from agentic_jobs.services.llm.prompt_builder import (
     DraftContext,
     FeedbackNote,
     ProfileBundle,
+    STACK_DEFAULTS,
     build_prompt_payload,
 )
 from agentic_jobs.services.llm.runner import LlmResponse, generate_cover_letter, summarize_feedback
 from agentic_jobs.services.applications.stage import apply_stage
 from agentic_jobs.services.llm.style_kit import CoverLetterKit, load_cover_letter_kit
+from agentic_jobs.services.documents.docx_renderer import render_cover_letter_docx
+from agentic_jobs.services.documents.style import get_document_style
 from agentic_jobs.services.slack.client import SlackClient
 
 
-ARTIFACTS_DIR = Path("artifacts")
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -67,7 +74,7 @@ class DraftGenerator:
         ).scalar_one_or_none()
         kit = self._load_kit()
         if identity is None:
-            name = "Apoorva Chilukuri"
+            name = settings.profile_fallback_name
             preferred = None
             email = None
             phone = None
@@ -258,8 +265,8 @@ class DraftGenerator:
                 thread_ts=slack_thread_ts,
                 text=letter,
             )
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001
+            LOGGER.warning("Failed to post cover letter draft to Slack thread %s/%s", slack_channel_id, slack_thread_ts)
 
     async def finalize(
         self,
@@ -269,6 +276,23 @@ class DraftGenerator:
     ) -> str:
         application = self._ensure_application(application_id)
         apply_stage(application, ApplicationStage.COVER_LETTER_FINALIZED)
+        cover_letter_md = load_artifact_text(
+            self.session,
+            application.id,
+            ArtifactType.COVER_LETTER_VERSION,
+        )
+        artifact_doc: Path | None = None
+        downloads_doc: Path | None = None
+        doc_title: str | None = None
+        if cover_letter_md:
+            artifact_doc, downloads_doc, doc_title = self._export_final_docx(application, cover_letter_md)
+            if artifact_doc:
+                artifact = models.Artifact(
+                    application_id=application.id,
+                    type=ArtifactType.COVER_LETTER_FINAL_PDF,
+                    uri=f"file://{artifact_doc.resolve()}",
+                )
+                self.session.add(artifact)
         stmt = (
             select(models.ApplicationFeedback.text)
             .where(
@@ -288,7 +312,11 @@ class DraftGenerator:
         self.session.add(learning_entry)
         self.session.commit()
         if self.slack_client and application.slack_channel_id and application.slack_thread_ts:
-            message = f"Marked `{application.human_id}` as Draft Ready.\nLearning note: {summary}"
+            suffix = ""
+            display_path = downloads_doc or artifact_doc
+            if display_path:
+                suffix = f"\nSaved DOCX to `{display_path}`."
+            message = f"Marked `{application.human_id}` as Draft Ready.\nLearning note: {summary}{suffix}"
             try:
                 await self.slack_client.post_thread_message(
                     channel=application.slack_channel_id,
@@ -296,9 +324,67 @@ class DraftGenerator:
                     text=message,
                 )
             except Exception:  # noqa: BLE001
-                pass
+                LOGGER.warning("Failed to post finalize message to Slack thread for %s", application.human_id)
         return summary
 
+    def _export_final_docx(
+        self,
+        application: models.Application,
+        cover_letter_md: str,
+    ) -> tuple[Path | None, Path | None, str | None]:
+        if not cover_letter_md.strip():
+            return None, None, None
+        safe_filename, title = self._build_docx_filename(application)
+        artifact_dir = ARTIFACTS_DIR / application.human_id
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        target_path = artifact_dir / safe_filename
+        try:
+            exported = render_cover_letter_docx(cover_letter_md, target_path)
+            downloads_copy = self._copy_to_downloads(exported)
+            return exported, downloads_copy, title
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Failed to export finalized cover letter for %s", application.human_id)
+            return None, None, None
 
-# Default stack for profiles without DB entries
-STACK_DEFAULTS = ["Java", "Python", "SQL", "TypeScript/React", "REST APIs", "Docker"]
+    def _build_docx_filename(self, application: models.Application) -> tuple[str, str]:
+        full_name = self._resolve_full_name()
+        first, last = self._name_parts(full_name)
+        company = (application.job.company_name if application.job else "Company") or "Company"
+        base_title = f"{first} {last} {company} CL".strip()
+        filename = f"{self._sanitize_filename(base_title)}.docx"
+        return filename, base_title
+
+    def _copy_to_downloads(self, source: Path) -> Path | None:
+        style = get_document_style()
+        target_dir = style.downloads_dir
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            destination = target_dir / source.name
+            shutil.copy2(source, destination)
+            return destination
+        except OSError:
+            LOGGER.warning("Failed to copy finalized cover letter to downloads directory.")
+            return None
+
+    def _resolve_full_name(self) -> str:
+        identity = self.session.execute(select(models.ProfileIdentity).limit(1)).scalar_one_or_none()
+        if identity and identity.name:
+            return identity.name
+        return settings.profile_fallback_name
+
+    @staticmethod
+    def _name_parts(full_name: str) -> tuple[str, str]:
+        parts = [p for p in full_name.strip().split() if p]
+        if not parts:
+            return ("Candidate", "Candidate")
+        if len(parts) == 1:
+            return (parts[0], parts[0])
+        return (parts[0], parts[-1])
+
+    @staticmethod
+    def _sanitize_filename(value: str) -> str:
+        invalid = set('<>:"/\\|?*')
+        cleaned = "".join("_" if ch in invalid or ord(ch) < 32 else ch for ch in value)
+        cleaned = "_".join(part for part in cleaned.strip().split())
+        return cleaned or "cover_letter"
+

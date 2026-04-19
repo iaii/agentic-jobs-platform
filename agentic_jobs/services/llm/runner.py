@@ -23,7 +23,7 @@ async def _mock_generate(payload: Mapping[str, Any]) -> LlmResponse:
     role = payload.get("role", {})
     project = payload.get("project_card", {})
     profile = payload.get("profile", {})
-    name = (profile.get("identity") or {}).get("name") or "Apoorva"
+    name = (profile.get("identity") or {}).get("name") or settings.profile_fallback_name
 
     opener = f"Dear Hiring Manager,\n\nI am excited to apply for the {role.get('title')} role at {role.get('company')}."
     why_company = (
@@ -46,7 +46,7 @@ async def generate_cover_letter(payload: Mapping[str, Any]) -> LlmResponse:
         return await _mock_generate(payload)
     if backend == "qwen":
         return await _call_qwen_backend(payload)
-    if backend == "ollama":
+    if backend in {"ollama", "lmstudio"}:
         return await _call_openai_style_backend(payload)
     raise RuntimeError(f"LLM backend '{backend}' is not configured.")
 
@@ -60,6 +60,115 @@ async def summarize_feedback(notes: Sequence[str]) -> str:
 
 class LlmBackendError(RuntimeError):
     """Raised when the LLM backend fails."""
+
+
+# ---------------------------------------------------------------------------
+# Generic agent LLM call — used by all three agents (Researcher, Writer, HM)
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class AgentLlmResponse:
+    content: dict[str, Any]
+    raw_text: str
+
+
+async def call_llm(
+    system_prompt: str,
+    user_message: str,
+    *,
+    temperature: float = 0.3,
+) -> AgentLlmResponse:
+    """
+    Generic OpenAI-compatible LLM call for agent use.
+
+    Unlike _call_openai_style_backend (which is hard-coded to the CL JSON schema),
+    this accepts arbitrary system/user prompts and returns whatever JSON the model
+    produces. Each agent defines and validates its own response shape.
+
+    Reuses the same retry logic, code-fence stripping, and JSON parsing.
+    Reads endpoint/model/key from settings (same as the cover letter pipeline).
+    """
+    if not settings.llm_endpoint_url:
+        raise LlmBackendError("LLM_ENDPOINT_URL is not configured.")
+
+    max_chars = settings.llm_max_user_msg_chars
+    if len(user_message) > max_chars:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "call_llm: user message truncated from %d to %d chars to fit context window",
+            len(user_message),
+            max_chars,
+        )
+        user_message = user_message[:max_chars]
+
+    api_key = settings.llm_api_key or "lm-studio"
+    body: dict[str, Any] = {
+        "model": settings.llm_model_name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        "temperature": temperature,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    timeout = max(5.0, float(settings.llm_timeout_seconds or 120))
+    last_error: Exception | None = None
+    max_attempts = 3
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(max_attempts):
+            try:
+                response = await client.post(
+                    settings.llm_endpoint_url,
+                    json=body,
+                    headers=headers,
+                )
+                response.raise_for_status()
+                data = response.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                retryable = exc.response.status_code in {429, 500, 502, 503, 504}
+                if retryable and attempt < max_attempts - 1:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                raise LlmBackendError(
+                    f"LLM agent call HTTP error {exc.response.status_code}: {exc.response.text}"
+                ) from exc
+            except httpx.RequestError as exc:
+                last_error = exc
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                raise LlmBackendError(f"LLM agent call request error: {exc}") from exc
+        else:
+            raise LlmBackendError(f"LLM agent call failed after {max_attempts} attempts: {last_error}") from last_error
+
+    try:
+        raw_text = data["choices"][0]["message"]["content"]
+        if isinstance(raw_text, list):
+            raw_text = "".join(p.get("text", "") for p in raw_text if isinstance(p, dict))
+        else:
+            raw_text = str(raw_text)
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LlmBackendError("Unexpected LLM response format in agent call.") from exc
+
+    # Strip code fences if the model wrapped JSON anyway
+    stripped = raw_text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+    try:
+        # raw_decode parses the first complete JSON object and ignores trailing text,
+        # which handles models that continue writing after the closing brace.
+        parsed, _ = json.JSONDecoder(strict=False).raw_decode(stripped)
+    except json.JSONDecodeError as exc:
+        raise LlmBackendError(f"Agent LLM response was not valid JSON: {stripped[:300]}") from exc
+
+    return AgentLlmResponse(content=parsed, raw_text=raw_text)
 
 
 async def _call_qwen_backend(payload: Mapping[str, Any]) -> LlmResponse:
@@ -133,11 +242,14 @@ async def _call_qwen_backend(payload: Mapping[str, Any]) -> LlmResponse:
 
 
 async def _call_openai_style_backend(payload: Mapping[str, Any]) -> LlmResponse:
+    """Shared backend for LM Studio, Ollama, and any OpenAI-compatible endpoint."""
+    backend = (settings.llm_backend or "lmstudio").lower()
     if not settings.llm_endpoint_url:
         raise LlmBackendError("LLM_ENDPOINT_URL is not configured.")
-    api_key = settings.llm_api_key or settings.ollama_api_key
-    if not api_key:
-        raise LlmBackendError("LLM_API_KEY is not configured.")
+
+    # LM Studio does not require an API key; use a placeholder if none is configured.
+    api_key = settings.llm_api_key or settings.ollama_api_key or "lm-studio"
+
     system_prompt = (
         "You are a cover letter generator. Respond ONLY with JSON matching the schema "
         '{"version":"CL vN","cover_letter_md":"markdown","sections_used":["..."],"provenance":{...}}. '
@@ -147,20 +259,23 @@ async def _call_openai_style_backend(payload: Mapping[str, Any]) -> LlmResponse:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": json.dumps(payload)},
     ]
-    body = {
+    body: dict[str, Any] = {
         "model": settings.llm_model_name,
         "messages": messages,
         "temperature": 0.2,
-        "response_format": {"type": "json_object"},
     }
+    # Older LM Studio accepted json_object; newer versions only accept json_schema or text.
+    # We rely on the system prompt instruction + code-fence stripping instead.
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    timeout = max(5.0, float(settings.llm_timeout_seconds or 60))
+    timeout = max(5.0, float(settings.llm_timeout_seconds or 120))
     last_error: Exception | None = None
+    max_attempts = 3
     async with httpx.AsyncClient(timeout=timeout) as client:
-        for attempt in range(2):
+        for attempt in range(max_attempts):
             try:
                 response = await client.post(
                     settings.llm_endpoint_url,
@@ -172,18 +287,22 @@ async def _call_openai_style_backend(payload: Mapping[str, Any]) -> LlmResponse:
                 break
             except httpx.HTTPStatusError as exc:
                 last_error = exc
-                if attempt == 0 and exc.response.status_code in {429, 500, 502, 503, 504}:
-                    await asyncio.sleep(2)
+                retryable = exc.response.status_code in {429, 500, 502, 503, 504}
+                if retryable and attempt < max_attempts - 1:
+                    wait = 2 ** attempt  # exponential back-off: 1s, 2s
+                    await asyncio.sleep(wait)
                     continue
-                raise LlmBackendError(f"Ollama backend error: {exc.response.text}") from exc
+                raise LlmBackendError(
+                    f"{backend} backend HTTP error {exc.response.status_code}: {exc.response.text}"
+                ) from exc
             except httpx.RequestError as exc:
                 last_error = exc
-                if attempt == 0:
-                    await asyncio.sleep(2)
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(2 ** attempt)
                     continue
-                raise LlmBackendError(f"Ollama backend request error: {exc}") from exc
+                raise LlmBackendError(f"{backend} backend request error: {exc}") from exc
         else:
-            raise LlmBackendError(f"Ollama backend error: {last_error}") from last_error
+            raise LlmBackendError(f"{backend} backend failed after {max_attempts} attempts: {last_error}") from last_error
 
     try:
         choice = data["choices"][0]
@@ -191,14 +310,19 @@ async def _call_openai_style_backend(payload: Mapping[str, Any]) -> LlmResponse:
         if isinstance(content, list):
             text = "".join(part.get("text", "") for part in content if isinstance(part, dict))
         else:
-            text = content
+            text = str(content)
     except (KeyError, IndexError, TypeError) as exc:
-        raise LlmBackendError("Unexpected Ollama/OpenAI response format.") from exc
+        raise LlmBackendError(f"Unexpected {backend} response format.") from exc
+
+    # Strip markdown code fences if the model wrapped the JSON anyway
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
     try:
-        parsed = json.loads(text)
+        parsed, _ = json.JSONDecoder(strict=False).raw_decode(stripped)
     except json.JSONDecodeError as exc:
-        raise LlmBackendError("Ollama response was not valid JSON.") from exc
+        raise LlmBackendError(f"{backend} response was not valid JSON: {stripped[:200]}") from exc
 
     try:
         version = parsed["version"]
@@ -206,7 +330,7 @@ async def _call_openai_style_backend(payload: Mapping[str, Any]) -> LlmResponse:
         sections = parsed.get("sections_used", [])
         provenance = parsed.get("provenance", {})
     except KeyError as exc:
-        raise LlmBackendError("Ollama JSON missing required fields.") from exc
+        raise LlmBackendError(f"{backend} JSON missing required fields: {exc}") from exc
     return LlmResponse(
         version=version,
         cover_letter_md=letter,

@@ -13,6 +13,7 @@ def test_build_digest_blocks_includes_actions() -> None:
         url="https://example.com/job",
         score=0.82,
         rationale="title fit, geo boost",
+        source_label="Greenhouse",
     )
 
     blocks = build_digest_blocks([row])

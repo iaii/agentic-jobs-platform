@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Text
@@ -13,9 +13,15 @@ from agentic_jobs.core.enums import (
     ApplicationStage,
     ApplicationStatus,
     ArtifactType,
+    AutofillMode,
+    AutofillTaskStatus,
     DomainReviewStatus,
     FeedbackRole,
     JobSourceType,
+    MemoryCategory,
+    MemoryType,
+    PipelineMode,
+    PipelineStatus,
     SubmissionMode,
     TrustVerdict,
 )
@@ -35,6 +41,7 @@ class Job(Base):
     source_type: Mapped[JobSourceType] = mapped_column(
         SAEnum(JobSourceType, name="job_source_type", native_enum=False), nullable=False
     )
+    source_name: Mapped[str] = mapped_column(String(128), nullable=False, default="unknown")
     domain_root: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     submission_mode: Mapped[SubmissionMode] = mapped_column(
         SAEnum(SubmissionMode, name="job_submission_mode", native_enum=False),
@@ -46,7 +53,7 @@ class Job(Base):
     )
     job_id_canonical: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     scraped_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
 
@@ -64,12 +71,13 @@ class JobSource(Base):
     source_type: Mapped[JobSourceType] = mapped_column(
         SAEnum(JobSourceType, name="job_source_type", native_enum=False), nullable=False
     )
+    source_name: Mapped[str] = mapped_column(String(128), nullable=False, default="unknown")
     source_url: Mapped[str] = mapped_column(String(1024), nullable=False)
     company_name: Mapped[Optional[str]] = mapped_column(String(255))
     domain_root: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     raw_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     discovered_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
 
@@ -84,7 +92,7 @@ class FrontierOrg(Base):
     org_slug: Mapped[str] = mapped_column(String(255), nullable=False)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     discovered_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     last_crawled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     muted_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -108,7 +116,7 @@ class TrustEvent(Base):
         SAEnum(TrustVerdict, name="trust_verdict", native_enum=False), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -155,13 +163,13 @@ class Application(Base):
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     job: Mapped[Job] = relationship(back_populates="applications")
@@ -169,6 +177,9 @@ class Application(Base):
         back_populates="application", cascade="all, delete-orphan"
     )
     feedback: Mapped[List["ApplicationFeedback"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
+    autofill_tasks: Mapped[List["AutofillTask"]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
 
@@ -187,11 +198,11 @@ class Artifact(Base):
         UUID(as_uuid=True), ForeignKey("applications.id"), nullable=False
     )
     type: Mapped[ArtifactType] = mapped_column(
-        SAEnum(ArtifactType, name="artifact_type", native_enum=False), nullable=False
+        SAEnum(ArtifactType, name="artifact_type", native_enum=False, length=64), nullable=False
     )
     uri: Mapped[str] = mapped_column(String(1024), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
     application: Mapped[Application] = relationship(back_populates="artifacts")
@@ -212,10 +223,45 @@ class ApplicationFeedback(Base):
     author: Mapped[Optional[str]] = mapped_column(String(255))
     text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
     application: Mapped[Application] = relationship(back_populates="feedback")
+
+
+class AutofillTask(Base):
+    __tablename__ = "autofill_tasks"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id"), nullable=False, index=True
+    )
+    status: Mapped[AutofillTaskStatus] = mapped_column(
+        SAEnum(AutofillTaskStatus, name="autofill_task_status", native_enum=False),
+        nullable=False,
+    )
+    mode: Mapped[AutofillMode] = mapped_column(
+        SAEnum(AutofillMode, name="autofill_mode", native_enum=False), nullable=False
+    )
+    domain_root: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    resume_path: Mapped[Optional[str]] = mapped_column(String(1024))
+    cover_letter_path: Mapped[Optional[str]] = mapped_column(String(1024))
+    final_url: Mapped[Optional[str]] = mapped_column(String(1024))
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    payload_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+    application: Mapped[Application] = relationship(back_populates="autofill_tasks")
 
 
 class DigestLog(Base):
@@ -231,7 +277,7 @@ class DigestLog(Base):
     slack_channel_id: Mapped[str] = mapped_column(String(64), nullable=False)
     slack_message_ts: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
     job: Mapped[Job] = relationship("Job")
@@ -260,13 +306,13 @@ class DomainReview(Base):
     muted_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
@@ -342,6 +388,96 @@ class ProfileFiles(Base):
     identity: Mapped[ProfileIdentity] = relationship(back_populates="files")
 
 
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id"), nullable=False, index=True
+    )
+    mode: Mapped[PipelineMode] = mapped_column(
+        SAEnum(PipelineMode, name="pipeline_mode", native_enum=False), nullable=False
+    )
+    status: Mapped[PipelineStatus] = mapped_column(
+        SAEnum(PipelineStatus, name="pipeline_status", native_enum=False),
+        nullable=False,
+        default=PipelineStatus.RUNNING,
+    )
+    agent_log: Mapped[List[dict]] = mapped_column(JSONB, nullable=False, default=list)
+    final_score: Mapped[Optional[float]] = mapped_column(Float)
+    revision_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    application: Mapped["Application"] = relationship("Application")
+
+
+class AgentMemory(Base):
+    __tablename__ = "agent_memories"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id"), nullable=True, index=True
+    )
+    memory_type: Mapped[MemoryType] = mapped_column(
+        SAEnum(MemoryType, name="memory_type", native_enum=False), nullable=False
+    )
+    category: Mapped[MemoryCategory] = mapped_column(
+        SAEnum(MemoryCategory, name="memory_category", native_enum=False), nullable=False
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class VaultEmbedding(Base):
+    __tablename__ = "vault_embeddings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    heading: Mapped[str] = mapped_column(String(512), nullable=False)
+    section_text: Mapped[str] = mapped_column(Text, nullable=False)
+    wikilinks: Mapped[List[str]] = mapped_column(JSONB, nullable=False, default=list)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(JSONB, nullable=True)
+    file_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("file_path", "heading", name="uq_vault_embedding_file_heading"),
+    )
+
+
+class CompanyCache(Base):
+    __tablename__ = "company_cache"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    domain: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    company_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    scraped_data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    scraped_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    ttl_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=168)
+
+
 class TrackerView(Base):
     __tablename__ = "tracker_views"
 
@@ -352,11 +488,11 @@ class TrackerView(Base):
     slack_channel_id: Mapped[str] = mapped_column(String(64), nullable=False)
     slack_message_ts: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )

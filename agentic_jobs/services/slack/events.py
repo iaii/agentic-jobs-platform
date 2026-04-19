@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from agentic_jobs.core.enums import FeedbackRole
 from agentic_jobs.db import models
 from agentic_jobs.services.drafts.generator import DraftGenerator, DraftGeneratorError
+from agentic_jobs.services.memory.store import MemoryStore
 from agentic_jobs.services.slack.client import SlackClient, SlackError
 from agentic_jobs.services.slack.tracker import MasterTracker
 
@@ -32,6 +33,33 @@ async def handle_slack_event(
         return
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not thread_ts:
+        return
+
+    # ------------------------------------------------------------------
+    # !remember command — save as long-term memory, skip draft regen
+    # ------------------------------------------------------------------
+    if text.lower().startswith("!remember"):
+        note = text[len("!remember"):].strip()
+        if note:
+            # Look up application for context (optional — memory is global)
+            application = session.execute(
+                select(models.Application).where(models.Application.slack_thread_ts == thread_ts)
+            ).scalar_one_or_none()
+
+            try:
+                memory = MemoryStore(session)
+                memory.save_explicit(
+                    note,
+                    application_id=application.id if application else None,
+                )
+                await slack_client.post_thread_message(
+                    channel=event.get("channel", ""),
+                    thread_ts=thread_ts,
+                    text=f":brain: Remembered: _{note}_",
+                )
+                LOGGER.debug("Saved !remember note: %s", note[:80])
+            except Exception:  # noqa: BLE001
+                LOGGER.warning("Failed to save !remember note")
         return
 
     application = session.execute(

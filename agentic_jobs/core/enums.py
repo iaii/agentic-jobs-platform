@@ -48,6 +48,7 @@ class ArtifactType(StrEnum):
     COVER_LETTER_VERSION = "cover_letter_vN"
     AUTOFILL_SUMMARY = "autofill_summary"
     CONFIRMATION = "confirmation"
+    COVER_LETTER_FINAL_PDF = "cl_final_pdf"
 
 
 class FeedbackRole(StrEnum):
@@ -60,3 +61,39 @@ class DomainReviewStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
     MUTED = "muted"
+
+
+class AutofillMode(StrEnum):
+    AUTOFILL = "autofill"
+    OPEN_TABS = "open_tabs"
+
+
+class AutofillTaskStatus(StrEnum):
+    QUEUED = "queued"
+    IN_PROGRESS = "in_progress"
+    READY = "ready"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class PipelineMode(StrEnum):
+    QUICK_DRAFT = "quick_draft"
+    FULL_PIPELINE = "full_pipeline"
+
+
+class PipelineStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class MemoryType(StrEnum):
+    SHORT_TERM = "short_term"
+    LONG_TERM = "long_term"
+
+
+class MemoryCategory(StrEnum):
+    STYLE_PREFERENCE = "style_preference"
+    COMPANY_INSIGHT = "company_insight"
+    FEEDBACK_PATTERN = "feedback_pattern"

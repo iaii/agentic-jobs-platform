@@ -198,7 +198,7 @@ def _hydrate_structure(data: dict) -> StructureGuide:
         plan=_hydrate_plan(data.get("plan_section")),
         stack_guidance=(data.get("stack_section") or {}).get("guidance"),
         close_guidance=(data.get("close") or {}).get("guidance"),
-        signoff=data.get("signoff", "Sincerely,\nApoorva Chilukuri"),
+        signoff=data.get("signoff", "Sincerely,"),
     )
 
 

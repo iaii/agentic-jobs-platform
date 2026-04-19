@@ -4,6 +4,7 @@ from agentic_jobs.core.enums import JobSourceType, SubmissionMode
 from agentic_jobs.db import models
 from agentic_jobs.services.slack.workflows import (
     collect_digest_rows,
+    collect_needs_review_candidates,
     last_posted_job_scraped_at,
 )
 
@@ -15,6 +16,7 @@ def _create_job(session, **overrides):
         "location": "Remote",
         "url": "https://example.com/jobs/123",
         "source_type": JobSourceType.COMPANY,
+        "source_name": "Example Source",
         "domain_root": "example.com",
         "submission_mode": SubmissionMode.DEEPLINK,
         "jd_text": "Build services.",
@@ -87,3 +89,26 @@ def test_last_posted_job_scraped_at_returns_latest_logged(sqlite_session):
     _log_digest(sqlite_session, newer, digest_day=date(2024, 1, 3))
 
     assert last_posted_job_scraped_at(sqlite_session) == newer.scraped_at
+
+
+def test_collect_needs_review_auto_whitelist_skips_known_domain(sqlite_session):
+    job = _create_job(
+        sqlite_session,
+        domain_root="jobs.ashbyhq.com",
+        job_id_canonical="SRC:auto_whitelist",
+    )
+    rows = collect_digest_rows(
+        sqlite_session,
+        since=job.scraped_at - timedelta(days=1),
+        digest_day=date.today(),
+        limit=10,
+    )
+    assert rows  # ensure job is available
+
+    candidates = collect_needs_review_candidates(
+        sqlite_session,
+        since=job.scraped_at - timedelta(days=1),
+    )
+    assert candidates == []
+    whitelist = sqlite_session.get(models.Whitelist, "jobs.ashbyhq.com")
+    assert whitelist is not None

@@ -13,6 +13,8 @@ from agentic_jobs.services.discovery.config import get_job_filter_config
 from agentic_jobs.services.discovery.github_adapter import GithubPositionsAdapter
 from agentic_jobs.services.discovery.greenhouse_adapter import GreenhouseAdapter
 from agentic_jobs.services.discovery.orchestrator import run_discovery
+from agentic_jobs.services.discovery.universal.adapter import UniversalAdapter
+from agentic_jobs.services.discovery.universal.sites_config import load_universal_sites_config
 from agentic_jobs.services.slack.client import SlackClient, SlackError
 from agentic_jobs.services.slack.digest import build_digest_blocks, build_needs_review_blocks
 from agentic_jobs.services.slack.workflows import (
@@ -26,6 +28,8 @@ LOGGER = logging.getLogger(__name__)
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 _scheduler_task: asyncio.Task | None = None
 _last_run_at_utc: datetime | None = None
+_last_memory_assess_utc: datetime | None = None
+_last_vault_refresh_utc: datetime | None = None
 
 
 def _schedule_hours() -> list[int]:
@@ -71,6 +75,7 @@ async def _run_discovery_cycle(run_started: datetime) -> None:
                     source_name="simplify",
                     slug="simplify",
                     data_urls=settings.simplify_positions_url_list,
+                    display_name="GitHub · Simplify",
                 )
             )
             adapters.append(simplify)
@@ -82,9 +87,18 @@ async def _run_discovery_cycle(run_started: datetime) -> None:
                     source_name="newgrad2026",
                     slug="newgrad2026",
                     data_urls=settings.new_grad_positions_url_list,
+                    display_name="GitHub · NewGrad2026",
                 )
             )
             adapters.append(new_grad)
+
+        if filter_config.adapters.get("universal", True):
+            universal_sites = load_universal_sites_config(settings.universal_sites_config_path)
+            if universal_sites.feeds:
+                universal = await stack.enter_async_context(
+                    UniversalAdapter(settings, sites_config=universal_sites)
+                )
+                adapters.append(universal)
 
         session = SessionLocal()
         try:
@@ -169,6 +183,80 @@ async def _post_digest_and_reviews(session, run_started: datetime) -> None:
             session.commit()
 
 
+async def _memory_assess_job() -> None:
+    """
+    Condense accumulated user feedback into long-term learnings.
+    Runs every N days (default: 3) as configured by MEMORY_ASSESSMENT_INTERVAL_DAYS.
+
+    Flow:
+      1. Load all ApplicationFeedback(role=USER) notes since last assessment
+      2. Filter noise (too short, ack phrases)
+      3. Truncate each to 200 chars
+      4. Batch to LLM: extract generalizable learnings
+      5. Save extracted learnings as AgentMemory(type=LONG_TERM, source=auto_assessed)
+    """
+    global _last_memory_assess_utc
+    interval_days = settings.memory_assessment_interval_days
+    now = datetime.now(tz=timezone.utc)
+
+    if _last_memory_assess_utc is not None:
+        if (now - _last_memory_assess_utc) < timedelta(days=interval_days - 0.1):
+            return
+
+    LOGGER.info("Running memory auto-assess job")
+    session = SessionLocal()
+    try:
+        from agentic_jobs.services.memory.store import MemoryStore
+        store = MemoryStore(session)
+        count = await store.auto_assess()
+        LOGGER.info("Memory auto-assess complete: %d learnings extracted", count)
+        _last_memory_assess_utc = now
+    except Exception:  # noqa: BLE001
+        LOGGER.exception("Memory auto-assess job failed.")
+    finally:
+        session.close()
+
+
+async def _vault_refresh_job() -> None:
+    """
+    Re-embed any vault sections whose source file has changed since last embed.
+    Runs every 12 hours. Skips gracefully if vault path is not configured or
+    the embedding endpoint is unreachable.
+    """
+    global _last_vault_refresh_utc
+    now = datetime.now(tz=timezone.utc)
+
+    if _last_vault_refresh_utc is not None:
+        if (now - _last_vault_refresh_utc) < timedelta(hours=12):
+            return
+
+    if not settings.vault_path:
+        return
+
+    LOGGER.info("Running vault embedding refresh job")
+    session = SessionLocal()
+    try:
+        from pathlib import Path
+        from agentic_jobs.services.vault.embedder import VaultEmbedder
+        from agentic_jobs.services.vault.parser import VaultParser
+
+        parser = VaultParser(Path(settings.vault_path))
+        sections = parser.parse_all()
+        embedder = VaultEmbedder(session)
+
+        if not await VaultEmbedder.health_check():
+            LOGGER.warning("Vault refresh: embedding endpoint unreachable, skipping.")
+            return
+
+        refreshed = await embedder.refresh_stale(sections)
+        LOGGER.info("Vault refresh: %d sections updated", refreshed)
+        _last_vault_refresh_utc = now
+    except Exception:  # noqa: BLE001
+        LOGGER.exception("Vault refresh job failed.")
+    finally:
+        session.close()
+
+
 async def scheduler_job() -> None:
     global _last_run_at_utc
     now_pt = datetime.now(tz=PT_ZONE)
@@ -188,6 +276,9 @@ async def scheduler_job() -> None:
 async def _scheduler_loop() -> None:
     # Run immediately on startup if within window and hasn't run recently
     await scheduler_job()
+    # Run memory + vault jobs on startup (they are internally gated by their own intervals)
+    await _memory_assess_job()
+    await _vault_refresh_job()
     while True:
         now_pt = datetime.now(tz=PT_ZONE)
         target = _next_run_time(now_pt)
@@ -199,6 +290,9 @@ async def _scheduler_loop() -> None:
             if (datetime.now(tz=timezone.utc) - _last_run_at_utc) < timedelta(hours=interval_hours - 0.01):
                 continue
         await scheduler_job()
+        # These are internally gated — safe to call every discovery cycle
+        await _memory_assess_job()
+        await _vault_refresh_job()
 
 
 def start_scheduler() -> None:

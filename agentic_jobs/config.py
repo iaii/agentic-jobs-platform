@@ -5,7 +5,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 class Settings(BaseSettings):
@@ -43,16 +43,59 @@ class Settings(BaseSettings):
     slack_jobs_drafts_channel: str | None = Field(None, alias="SLACK_JOBS_DRAFTS_CHANNEL")
     slack_jobs_tracker_channel: str | None = Field(None, alias="SLACK_JOBS_TRACKER_CHANNEL")
     slack_jobs_archive_channel: str | None = Field(None, alias="SLACK_JOBS_ARCHIVE_CHANNEL")
-    llm_backend: str = Field("mock", alias="LLM_BACKEND")
-    llm_model_name: str = Field("llama3.1:8b-instruct", alias="LLM_MODEL_NAME")
-    llm_endpoint_url: str | None = Field(None, alias="LLM_ENDPOINT_URL")
-    llm_timeout_seconds: int = Field(60, alias="LLM_TIMEOUT_SECONDS")
+    llm_backend: str = Field("lmstudio", alias="LLM_BACKEND")
+    llm_model_name: str = Field("local-model", alias="LLM_MODEL_NAME")
+    llm_endpoint_url: str | None = Field("http://localhost:1234/v1/chat/completions", alias="LLM_ENDPOINT_URL")
+    llm_timeout_seconds: int = Field(120, alias="LLM_TIMEOUT_SECONDS")
+    llm_max_user_msg_chars: int = Field(12000, alias="LLM_MAX_USER_MSG_CHARS")
     llm_api_key: str | None = Field(None, alias="LLM_API_KEY")
     ollama_api_key: str | None = Field(None, alias="OLLAMA_API_KEY")
     digest_batch_size: int = Field(20, alias="DIGEST_BATCH_SIZE")
     scheduler_window_start_hour_pt: int = Field(7, alias="SCHEDULER_WINDOW_START_HOUR_PT")
     scheduler_window_end_hour_pt: int = Field(23, alias="SCHEDULER_WINDOW_END_HOUR_PT")
     job_filter_config_path: str = Field("config/job_filters.yaml", alias="JOB_FILTER_CONFIG_PATH")
+    universal_sites_config_path: str = Field("config/universal_sites.yaml", alias="UNIVERSAL_SITES_CONFIG_PATH")
+    universal_max_age_days: int = Field(7, alias="UNIVERSAL_MAX_AGE_DAYS")
+    autofill_enabled: bool = Field(False, alias="AUTOFILL_ENABLED")
+    autofill_ws_port: int = Field(8765, alias="AUTOFILL_WS_PORT")
+    autofill_max_concurrency: int = Field(3, alias="AUTOFILL_MAX_CONCURRENCY")
+    autofill_ops_channel: str | None = Field(None, alias="AUTOFILL_OPS_CHANNEL")
+    autofill_allowed_domains: str | None = Field(None, alias="AUTOFILL_ALLOWED_DOMAINS")
+    autofill_allow_account_creation: bool = Field(False, alias="AUTOFILL_ALLOW_ACCOUNT_CREATION")
+    autofill_assisted_upload: bool = Field(True, alias="AUTOFILL_ASSISTED_UPLOAD")
+    autofill_automation_mode: bool = Field(False, alias="AUTOFILL_AUTOMATION_MODE")
+    autofill_cl_pdf_enabled: bool = Field(True, alias="AUTOFILL_CL_PDF_ENABLED")
+    autofill_fake_profile_path: str = Field("config/fake_profile.yaml", alias="AUTOFILL_FAKE_PROFILE_PATH")
+    autofill_api_token: str | None = Field(None, alias="AUTOFILL_API_TOKEN")
+    profile_fallback_name: str = Field("Candidate", alias="PROFILE_FALLBACK_NAME")
+
+    # -------------------------
+    # Vault / Embeddings
+    # -------------------------
+    vault_path: str = Field("", alias="VAULT_PATH")
+    embedding_model_name: str = Field("nomic-embed-text-v1.5", alias="EMBEDDING_MODEL_NAME")
+    embedding_endpoint_url: str = Field("http://localhost:1234/v1/embeddings", alias="EMBEDDING_ENDPOINT_URL")
+    vault_link_depth: int = Field(1, alias="VAULT_LINK_DEPTH")
+    vault_top_k: int = Field(5, alias="VAULT_TOP_K")
+
+    # -------------------------
+    # Multi-Agent Pipeline
+    # -------------------------
+    pipeline_pass_threshold: float = Field(7.0, alias="PIPELINE_PASS_THRESHOLD")
+    pipeline_max_revisions: int = Field(2, alias="PIPELINE_MAX_REVISIONS")
+
+    # -------------------------
+    # Memory
+    # -------------------------
+    memory_assessment_interval_days: int = Field(3, alias="MEMORY_ASSESSMENT_INTERVAL_DAYS")
+
+    # -------------------------
+    # Web Scraping
+    # -------------------------
+    scraper_rate_limit: int = Field(5, alias="SCRAPER_RATE_LIMIT")
+    scraper_timeout_seconds: int = Field(10, alias="SCRAPER_TIMEOUT_SECONDS")
+    company_cache_ttl_hours: int = Field(168, alias="COMPANY_CACHE_TTL_HOURS")
+    company_research_vault_subdir: str = Field("Agentic Copilot/Company Research", alias="COMPANY_RESEARCH_VAULT_SUBDIR")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -89,10 +132,22 @@ class Settings(BaseSettings):
         ]
 
     @property
+    def autofill_allowed_domains_list(self) -> list[str]:
+        if not self.autofill_allowed_domains:
+            return []
+        return [domain.strip() for domain in self.autofill_allowed_domains.split(",") if domain.strip()]
+
+    @property
     def github_max_age_delta(self):
         from datetime import timedelta
 
         return timedelta(days=self.github_max_age_days)
+
+    @property
+    def universal_max_age_delta(self):
+        from datetime import timedelta
+
+        return timedelta(days=self.universal_max_age_days)
 
 
 @lru_cache()

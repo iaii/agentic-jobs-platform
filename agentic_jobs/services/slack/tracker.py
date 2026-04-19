@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from agentic_jobs.config import settings
-from agentic_jobs.core.enums import ApplicationStage
+from agentic_jobs.core.enums import ApplicationStage, AutofillTaskStatus
 from agentic_jobs.db import models
 from agentic_jobs.services.applications.stage import (
     ARCHIVED_STAGES,
@@ -19,6 +20,8 @@ from agentic_jobs.services.applications.stage import (
 )
 from agentic_jobs.services.slack.client import SlackClient, SlackError
 
+
+LOGGER = logging.getLogger(__name__)
 
 ROWS_PER_PAGE = 25
 MAX_TRACKER_PAGES = 4
@@ -95,12 +98,28 @@ class MasterTracker:
                     view.slack_channel_id = new_channel
                     view.slack_message_ts = new_ts
             else:
-                await self.slack_client.update_message(
-                    channel=view.slack_channel_id,
-                    ts=view.slack_message_ts,
-                    text="Master Job Tracker",
-                    blocks=blocks,
-                )
+                try:
+                    await self.slack_client.update_message(
+                        channel=view.slack_channel_id,
+                        ts=view.slack_message_ts,
+                        text="Master Job Tracker",
+                        blocks=blocks,
+                    )
+                except SlackError:
+                    # Message was deleted (e.g. channel history > 90 days).
+                    # Post a new message and update the stored timestamp.
+                    LOGGER.info("Tracker page %s message not found — posting fresh message", view_key)
+                    try:
+                        response = await self.slack_client.post_message(
+                            channel=channel_id,
+                            text="Master Job Tracker",
+                            blocks=blocks,
+                        )
+                        view.slack_channel_id = response.data.get("channel") or channel_id
+                        view.slack_message_ts = response.data.get("ts") or response.data.get("message", {}).get("ts") or ""
+                    except SlackError as post_err:
+                        LOGGER.warning("Failed to post replacement tracker page %s: %s", view_key, post_err)
+                        continue
             view.view_type = view_key
             view.updated_at = now
             used_keys.add(view_key)
@@ -157,6 +176,12 @@ class MasterTracker:
         for stage_value, count in self.session.execute(stmt):
             counts[stage_value] = count
         return counts
+
+    def _count_queued_autofill_tasks(self) -> int:
+        stmt = select(func.count()).select_from(models.AutofillTask).where(
+            models.AutofillTask.status == AutofillTaskStatus.QUEUED
+        )
+        return self.session.execute(stmt).scalar_one() or 0
 
     def _get_views(self) -> dict[str, models.TrackerView]:
         stmt = select(models.TrackerView).where(
@@ -218,6 +243,24 @@ class MasterTracker:
                         {
                             "type": "mrkdwn",
                             "text": " · ".join(summary_chunks),
+                        }
+                    ],
+                }
+            )
+
+        queued = self._count_queued_autofill_tasks()
+        if settings.autofill_enabled and queued:
+            button_text = f"Autofill Queue ({queued})" if queued > 1 else "Autofill Queue"
+            blocks.append(
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": button_text},
+                            "action_id": "autofill_run_all",
+                            "style": "primary",
+                            "value": json.dumps({"count": queued}),
                         }
                     ],
                 }

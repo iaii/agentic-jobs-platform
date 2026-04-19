@@ -23,6 +23,7 @@ class JobModel(BaseModel):
     location: str
     url: HttpUrl
     source_type: JobSourceType
+    source_name: str
     domain_root: str
     submission_mode: SubmissionMode
     jd_text: str
@@ -35,6 +36,7 @@ class JobModel(BaseModel):
 class JobSourceModel(BaseModel):
     id: UUID
     source_type: JobSourceType
+    source_name: str
     source_url: HttpUrl
     company_name: Optional[str] = None
     domain_root: str

@@ -11,6 +11,7 @@ from agentic_jobs.core.enums import DomainReviewStatus
 from agentic_jobs.db import models
 from agentic_jobs.services.ranking import score_job
 from agentic_jobs.services.slack.digest import DigestRow, NeedsReviewCard
+from agentic_jobs.services.trust.whitelist import apply_auto_whitelist, lookup_auto_whitelist
 
 
 def collect_digest_rows(
@@ -48,6 +49,7 @@ def collect_digest_rows(
                 url=job.url,
                 score=score_result.score,
                 rationale=score_result.rationale,
+                source_label=job.source_name or job.source_type.value,
             )
         )
 
@@ -98,9 +100,17 @@ def collect_needs_review_candidates(
 
     candidates: list[NeedsReviewCandidate] = []
     seen_domains: set[str] = set()
+    commit_needed = False
 
     for job in jobs:
         if job.domain_root in seen_domains:
+            continue
+
+        auto_entry = lookup_auto_whitelist(job.domain_root)
+        if auto_entry:
+            apply_auto_whitelist(session, job.domain_root, job.company_name, auto_entry)
+            commit_needed = True
+            seen_domains.add(job.domain_root)
             continue
 
         whitelist_entry = session.get(models.Whitelist, job.domain_root)
@@ -136,8 +146,10 @@ def collect_needs_review_candidates(
             )
             session.add(domain_review)
             session.flush()
+            commit_needed = True
         domain_review.company_name = job.company_name or domain_review.company_name
         domain_review.ats_type = job.source_type.value
+        commit_needed = True
 
         trust_event = session.execute(
             select(models.TrustEvent)
@@ -162,7 +174,8 @@ def collect_needs_review_candidates(
         candidates.append(NeedsReviewCandidate(record=domain_review, card=card))
         seen_domains.add(job.domain_root)
 
-    session.commit()
+    if commit_needed or candidates:
+        session.commit()
     return candidates
 
 
