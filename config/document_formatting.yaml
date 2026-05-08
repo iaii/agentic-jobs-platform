@@ -1,0 +1,25 @@
+font:
+  pdf_family: "Times-Roman"
+  pdf_bold: "Times-Bold"
+  pdf_italic: "Times-Italic"
+  pdf_bold_italic: "Times-BoldItalic"
+  pdf_monospace: "Courier"
+  docx_name: "Times New Roman"
+  docx_monospace: "Courier New"
+  size: 12
+  line_spacing: 1.25
+
+margins:
+  top_inches: 1.0
+  bottom_inches: 1.0
+  left_inches: 0.8
+  right_inches: 0.8
+
+bullets:
+  symbol: "-"
+
+downloads_path: "~/Downloads"
+
+# Advanced controls for PDF word wrapping
+char_width_factor: 0.52
+monospace_width_factor: 0.6

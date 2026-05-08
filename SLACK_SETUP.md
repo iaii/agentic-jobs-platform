@@ -1,184 +1,249 @@
 # Slack Integration Setup Guide
 
-This guide walks through configuring the Slack app for the **Agentic Job Search Copilot**. The system uses Socket Mode for real-time interaction — no public URL or ngrok required.
+This guide will help you set up and test your Slack integration for the Agentic Jobs Platform. The system includes interactive components, automated digests, domain review workflows, and application tracking.
 
 ## Prerequisites
 
-- PostgreSQL running and `DATABASE_URL` configured
-- Python 3.11+ with dependencies installed (`pip install -r requirements.txt`)
+- PostgreSQL database running (✅ Already set up!)
 - Slack workspace with admin access
+- Python 3.14 installed (✅ Already installed!)
+- Agentic Jobs Platform running (✅ Core system implemented!)
 
----
+## Step 1: Configure Your Slack App
 
-## Step 1: Create and configure the Slack app
+### 1.1 Go to Slack API Dashboard
+Visit: https://api.slack.com/apps
 
-### 1.1 Go to the Slack API dashboard
+### 1.2 Select Your App
+Click on your "Agentic Jobs Platform" app (or create a new one if you haven't yet)
 
-Visit [https://api.slack.com/apps](https://api.slack.com/apps) and create a new app (or select an existing one).
+### 1.3 Enable Socket Mode
+1. Click on **"Socket Mode"** in the left sidebar
+2. Toggle **"Enable Socket Mode"** to **ON**
+3. This allows your app to receive events without needing a public URL (no ngrok needed!)
+4. **Socket Mode is required** for the Agentic Jobs Platform to receive interactive component events
 
-### 1.2 Enable Socket Mode
+### 1.4 Get Your Tokens
 
-1. Click **Socket Mode** in the left sidebar.
-2. Toggle **Enable Socket Mode** to **ON**.
+#### Bot User OAuth Token (SLACK_BOT_TOKEN)
+1. Go to **"OAuth & Permissions"** in the left sidebar
+2. Under **"Scopes"**, add these Bot Token Scopes:
+   - `chat:write` - Post messages and interactive components
+   - `channels:read` - View basic channel info
+   - `groups:read` - View basic private channel info
+   - `channels:history` - Read message history for digests
+   - `users:read` - Read user information for application tracking
+3. Click **"Install to Workspace"** (or reinstall if already installed)
+4. Copy the **"Bot User OAuth Token"** (starts with `xoxb-`)
 
-Socket Mode maintains a persistent WebSocket connection to Slack, so the server receives interactive component events without exposing a public endpoint.
-
-### 1.3 Collect your tokens
-
-#### Bot User OAuth Token (`SLACK_BOT_TOKEN`)
-1. Go to **OAuth & Permissions**.
-2. Under **Scopes → Bot Token Scopes**, add:
-   - `chat:write` — post messages and interactive components
-   - `channels:read` — read channel metadata
-   - `groups:read` — read private channel metadata
-   - `channels:history` — read message history (digest dedup)
-   - `users:read` — resolve user names in application threads
-   - `pins:write` — manage the pinned master tracker message
-3. Click **Install to Workspace**.
-4. Copy the **Bot User OAuth Token** (starts with `xoxb-`).
-
-#### App-Level Token (`SLACK_APP_LEVEL_TOKEN`)
-1. Go to **Basic Information → App-Level Tokens**.
-2. Click **Generate Token and Scopes**, name it (e.g., "Socket Mode Token"), and add:
+#### App-Level Token (SLACK_APP_LEVEL_TOKEN)
+1. Go to **"Basic Information"** in the left sidebar
+2. Scroll down to **"App-Level Tokens"**
+3. Click **"Generate Token and Scopes"**
+4. Name it: "Socket Mode Token"
+5. Add scopes:
    - `connections:write`
    - `authorizations:read`
-3. Copy the token (starts with `xapp-`).
+6. Click **"Generate"**
+7. Copy the token (starts with `xapp-`)
 
-#### Signing Secret (`SLACK_SIGNING_SECRET`)
-1. Go to **Basic Information → App Credentials**.
-2. Copy the **Signing Secret**.
+#### Signing Secret (SLACK_SIGNING_SECRET)
+1. In **"Basic Information"**
+2. Under **"App Credentials"**
+3. Copy the **"Signing Secret"**
 
-### 1.4 Enable Interactivity
+### 1.5 Set Up Interactive Components
+1. Go to **"Interactivity & Shortcuts"**
+2. Toggle **"Interactivity"** to **ON**
+3. For Socket Mode, you don't need a Request URL!
+4. **Required for**: "Save to Tracker" buttons, "Approve/Reject" domain review actions
+5. Click **"Save Changes"**
 
-1. Go to **Interactivity & Shortcuts**.
-2. Toggle **Interactivity** to **ON**.
-3. No Request URL is needed — Socket Mode handles all interactions.
+## Step 2: Configure Your Local Environment
 
----
-
-## Step 2: Configure environment variables
-
-Copy the template and fill in your values:
-
+### 2.1 Copy the Template
 ```bash
+cd /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform
 cp env_template.sh env_local.sh
 ```
 
-Minimum required Slack settings in `env_local.sh`:
+### 2.2 Edit env_local.sh
+Open `env_local.sh` in your favorite editor and replace the placeholder values:
 
 ```bash
-export SLACK_BOT_TOKEN="xoxb-..."
-export SLACK_APP_LEVEL_TOKEN="xapp-..."
-export SLACK_SIGNING_SECRET="..."
-
-# Channel IDs (not names — use the ID from the channel URL)
-export SLACK_JOBS_FEED_CHANNEL="C..."      # job digests + domain review cards
-export SLACK_JOBS_DRAFTS_CHANNEL="C..."    # per-application cover letter threads
-export SLACK_JOBS_TRACKER_CHANNEL="C..."   # pinned master tracker view
-export SLACK_JOBS_ARCHIVE_CHANNEL="C..."   # accepted / rejected outcomes
+# Replace these with your actual tokens
+export SLACK_BOT_TOKEN="xoxb-your-actual-token-from-step-1.4"
+export SLACK_APP_LEVEL_TOKEN="xapp-your-actual-token-from-step-1.4"
+export SLACK_SIGNING_SECRET="your-actual-secret-from-step-1.4"
 ```
 
-Load and start:
-
+### 2.3 Load the Environment Variables
 ```bash
 source env_local.sh
-./start_server.sh
 ```
 
----
+## Step 3: Test Your Configuration
 
-## Step 3: Verify the connection
-
-### Health check
-```bash
-curl http://localhost:8000/healthz
-# → {"status":"ok"}
-```
-
-### Test Slack config
+### 3.1 Test Environment Variables
 ```bash
 python3 test_slack_config.py
 ```
-Expected:
+
+Expected output:
 ```
-✅ SLACK_BOT_TOKEN is set: xoxb-...
-✅ SLACK_APP_LEVEL_TOKEN is set: xapp-...
-✅ SLACK_SIGNING_SECRET is set: ...
+✅ SLACK_BOT_TOKEN is set: xoxb-12345...67890
+✅ SLACK_APP_LEVEL_TOKEN is set: xapp-12345...67890
+✅ SLACK_SIGNING_SECRET is set: abc12...xyz89
 ✅ All environment variables are properly configured!
 ```
 
-### Test Slack connection
+### 3.2 Test Slack Connection
 ```bash
 python3 test_slack_connection.py
 ```
-Expected:
+
+Expected output:
 ```
 ✅ Bot Token is valid!
+   Team: Your Workspace
+   User: your-bot
+   Bot ID: B01234567
+   
 ✅ Socket Mode connection successful!
+   Your app can now receive Slack events in real-time!
+
+🎉 All tests passed!
 ```
 
-### Server startup logs
+## Step 4: Start the Server
+
+### 4.1 Using the Start Script
+```bash
+./start_server.sh
 ```
+
+### 4.2 Or Manually
+```bash
+source env_local.sh
+uvicorn agentic_jobs.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 4.3 Verify the Server is Running
+In another terminal:
+```bash
+curl http://localhost:8000/healthz
+```
+
+Expected output:
+```json
+{"status":"ok"}
+```
+
+### 4.4 Check the Logs
+You should see:
+```
+INFO: Started server process
+INFO: Waiting for application startup.
 INFO: Slack socket mode client connected.
 INFO: Application startup complete.
 INFO: Uvicorn running on http://0.0.0.0:8000
 ```
 
----
+## Step 5: Test the Complete Workflow
 
-## Step 4: End-to-end workflow test
-
-### Trigger discovery
+### 5.1 Test Job Discovery
 ```bash
-curl -X POST http://localhost:8000/api/v1/discover/run \
-  -H 'content-type: application/json' -d '{}'
+# Trigger discovery to populate jobs
+curl -X POST http://localhost:8000/api/v1/discover/run
 ```
 
-### In Slack
-1. Check `SLACK_JOBS_FEED_CHANNEL` for a job digest with **Open JD** and **Save to Tracker** buttons.
-2. Click **Save to Tracker** — an application card should appear in `SLACK_JOBS_DRAFTS_CHANNEL` with a cover letter thread.
-3. Click **Quick Draft** or **Generate CL** — a draft should appear in the thread within ~15–90 seconds depending on the backend.
-4. Unknown domains trigger **Needs Review** cards with **Approve** / **Reject** buttons.
-5. Check `SLACK_JOBS_TRACKER_CHANNEL` for the pinned master tracker, which updates automatically.
+### 5.2 Test Slack Integration
+1. **Check for job digests** in your configured `#jobs-feed` channel
+2. **Click "Save to Tracker"** on any job posting
+3. **The button should work** without showing an error symbol!
+4. **Check the thread** - you should see a reply with job details, score, and application ID
+5. **Test domain review** - unknown domains should trigger "Needs-Review" cards
 
----
+### 5.3 Verify Application Tracking
+- Applications should be created with human-readable IDs (APP-YYYY-NNN)
+- Each application gets its own Slack thread
+- Job scoring and rationale should be displayed
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---------|-----|
-| Socket Mode connection timed out | Verify `SLACK_APP_LEVEL_TOKEN` and that Socket Mode is enabled in the app settings |
-| Bot token validation failed | Check token starts with `xoxb-`; reinstall app to workspace; verify scopes |
-| Save to Tracker shows error symbol | Check server logs; verify PostgreSQL is running; run `python3 test_slack_config.py` |
-| Server won't start | `pkill -f uvicorn`; check `psql -d agentic_jobs -c "SELECT 1;"`; verify `pip install -r requirements.txt` |
-| Master tracker not updating | Confirm `SLACK_JOBS_TRACKER_CHANNEL` is set to the channel **ID**, not the name |
+### "Socket Mode connection timed out"
+- Check your internet connection
+- Verify your App-Level Token is correct
+- Make sure Socket Mode is enabled in your Slack app settings
 
----
+### "Bot Token validation failed"
+- Verify your Bot Token is correct
+- Make sure you've installed the app to your workspace
+- Check that the required scopes are added
 
-## Quick reference
+### "Save to Tracker button shows error"
+- Check the server logs for error messages
+- Verify the database is running: `ps aux | grep postgres`
+- Make sure all environment variables are set: `python3 test_slack_config.py`
 
+### Server won't start
+- Kill any existing processes: `pkill -f uvicorn`
+- Check the database connection: `psql -d agentic_jobs -c "SELECT 1;"`
+- Verify Python dependencies: `pip3 list | grep slack-sdk`
+
+## Quick Reference
+
+### Start the Server
 ```bash
-# Start
-source env_local.sh && ./start_server.sh
-
-# Stop
-pkill -f uvicorn
-
-# Manual discovery trigger
-curl -X POST http://localhost:8000/api/v1/discover/run -H 'content-type: application/json' -d '{}'
-
-# Test config
-python3 test_slack_config.py && python3 test_slack_connection.py
+cd /Users/apoorvachilukuri/Projects/job-app/agentic-jobs-platform
+source env_local.sh
+./start_server.sh
 ```
 
----
+### Stop the Server
+Press `Ctrl+C` or:
+```bash
+pkill -f uvicorn
+```
 
-## Channel setup summary
+### Test Configuration
+```bash
+python3 test_slack_config.py
+python3 test_slack_connection.py
+```
 
-| Channel | Suggested name | Purpose |
-|---------|---------------|---------|
-| Feed | `#jobs-feed` | Digest posts + domain review cards |
-| Drafts | `#jobs-drafts` | Per-application threads, cover letter drafts |
-| Tracker | `#jobs-tracker` | Pinned master tracker (one message, auto-updated) |
-| Archive | `#jobs-archive` | Final outcomes (Accepted / Rejected) |
-| Autofill Ops _(optional)_ | `#autofill-ops` | Autofill task progress and errors |
+### View Logs
+The logs will appear in the terminal where you started the server.
+
+## System Features 🎉
+
+The Agentic Jobs Platform provides:
+
+### ✅ **Automated Job Discovery**
+- **Greenhouse integration** with sitemap-based frontier seeding
+- **GitHub data sources** (SimplifyJobs, New-Grad-2026) with fallback URLs
+- **Rate limiting and politeness** for respectful crawling
+- **Deduplication** with 30-day windows for canonical IDs and content hashes
+
+### ✅ **Slack Integration**
+- **Interactive components** with "Save to Tracker" and "Open JD" buttons
+- **Automated digests** with job scoring and rationale
+- **Domain review workflow** for unknown/untrusted sources
+- **Application tracking** with one thread per application
+- **Socket Mode integration** for real-time event handling
+
+### ✅ **Trust & Security**
+- **Domain evaluation** with deterministic scoring
+- **Whitelist management** for approved domains
+- **Human-in-the-loop** approval for unknown sources
+- **No auto-submit** - all applications require human approval
+
+### ✅ **No ngrok Required!**
+Thanks to **Socket Mode**, your app connects directly to Slack without needing:
+- ❌ ngrok
+- ❌ Public URLs  
+- ❌ Port forwarding
+- ❌ Domain names
+
+Everything runs locally and securely on your machine!
+

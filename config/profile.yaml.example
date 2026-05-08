@@ -1,0 +1,93 @@
+# Autofill profile — copy this to config/profile.yaml and fill in your details.
+# config/profile.yaml is gitignored; never commit real PII.
+
+identity:
+  full_name: "Jane Candidate"
+  preferred_name: "Jane"
+  email: "jane@example.com"
+  phone: "555-123-4567"
+  base_location: "San Francisco, CA"
+  address:
+    line1: ""
+    line2: ""
+    city: "San Francisco"
+    state: "CA"
+    postal_code: "94102"
+    country: "US"
+
+links:
+  linkedin: "https://www.linkedin.com/in/yourprofile"
+  github: "https://github.com/yourusername"
+  portfolio: ""
+
+facts:
+  education: "B.S. Computer Science — Your University (2025)"
+  degree_level: "Bachelor's"
+  degree_major: "Computer Science"
+  graduation_year: "2025"
+  years_experience: 2
+  work_auth: "US Citizen"
+  sponsorship_needed: false
+  skills:
+    - Python
+    - SQL
+    - TypeScript
+  tools:
+    - Docker
+    - PostgreSQL
+    - FastAPI
+
+# EEO / compliance — only surfaced when the ATS explicitly asks.
+compliance:
+  gender: "Female"                            # or Male / Non-binary / Prefer not to say
+  veteran_status: "I am not a veteran"
+  disability_status: "I don't wish to self-identify"
+  race_ethnicity: "Asian (Not Hispanic or Latino)"
+  hispanic_latino: "No"
+
+files:
+  resume_variants:
+    - tag: "default"
+      path: "artifacts/profile/resume/Your_Resume.pdf"
+  default_resume_tag: "default"
+  # Plain-text resume used by the /answer LLM for work-experience fields.
+  # The LLM quotes from this verbatim — never invents content.
+  resume_text_path: "artifacts/profile/resume/resume.md"
+  cover_letter_pdf:
+    enabled: true
+    path: "artifacts/CL-LATEST/cover-letter.pdf"
+
+# Ground-truth answers for common application questions.
+# The LLM uses these verbatim — it will not deviate.
+quick_answers:
+  worked_here_before: "No"
+  how_did_you_hear: "Job board"
+  notice_period: "2 weeks"
+  sponsorship_required: "No"
+  sponsorship_now_or_future: "No"
+  us_authorized: "Yes"
+  authorized_to_work: "Yes"
+  willing_to_work_in_office: "Yes"
+  willing_to_work_hybrid: "Yes"
+  willing_to_work_remote: "Yes"
+  agree_to_work_model: "Yes"
+  salary_expectation_min: 120000
+  salary_expectation_max: 150000
+  graduation_year: "2025"
+  degree_level: "Bachelor's"
+  degree_major: "Computer Science"
+  university: "Your University"
+  gpa: "3.8"
+  github_url: "https://github.com/yourusername"
+  other_website: "https://github.com/yourusername"
+  personal_website: "https://github.com/yourusername"
+  website: "https://github.com/yourusername"
+  portfolio_url: ""
+
+field_hints:
+  first_name: "Jane"
+  last_name: "Candidate"
+  city: "San Francisco"
+  state: "CA"
+  postal_code: "94102"
+  country: "United States"

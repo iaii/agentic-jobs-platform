@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Agentic Autofill Settings</title>
+    <style>
+      body { font-family: system-ui, sans-serif; padding: 16px; max-width: 420px; }
+      label { display: block; margin-bottom: 12px; }
+      input { width: 100%; padding: 6px; margin-top: 4px; }
+      button { padding: 8px 12px; }
+      .status { margin-top: 12px; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <h1>Autofill Companion</h1>
+    <p>Configure the local API endpoint and optional token. These values live only in Chrome storage.</p>
+    <form id="settings-form">
+      <label>
+        Autofill API Base URL
+        <input type="url" id="apiBase" required value="http://127.0.0.1:8000/api/v1/autofill" />
+      </label>
+      <label>
+        API Token (optional)
+        <input type="password" id="apiToken" />
+      </label>
+      <button type="submit">Save Settings</button>
+    </form>
+    <div class="status" id="status"></div>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

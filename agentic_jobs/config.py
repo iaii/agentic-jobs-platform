@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # Multi-Agent Pipeline
     # -------------------------
     pipeline_pass_threshold: float = Field(7.0, alias="PIPELINE_PASS_THRESHOLD")
-    pipeline_max_revisions: int = Field(2, alias="PIPELINE_MAX_REVISIONS")
+    pipeline_max_revisions: int = Field(3, alias="PIPELINE_MAX_REVISIONS")
 
     # -------------------------
     # Memory

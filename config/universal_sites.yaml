@@ -1,0 +1,29 @@
+# Example universal adapter configuration.
+# Each entry represents one site feed to crawl. Feel free to duplicate and
+# customize with the ATS + options for your own targets.
+sites:
+  - site_slug: apple
+    display_name: Apple Careers
+    crawl_interval_minutes: 180  # falls back to scheduler interval when omitted
+    feeds:
+      - feed_slug: corporate
+        parser: workday
+        options:
+          host: jobs.apple.com
+          tenant: apple
+          site: en-us
+  - site_slug: meta
+    display_name: Meta Careers
+    feeds:
+      - feed_slug: global
+        site_url: https://www.metacareers.com/jobsearch/
+  - site_slug: honeywell
+    display_name: Honeywell Careers
+    feeds:
+      - feed_slug: main
+        site_url: https://careers.honeywell.com/en/sites/Honeywell/jobs
+  - site_slug: netflix
+    display_name: Netflix Careers
+    feeds:
+        - feed_slug: main
+          site_url: https://explore.jobs.netflix.net/careers

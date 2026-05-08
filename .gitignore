@@ -1,3 +1,24 @@
+# Environment / secrets
 .env
 env_local.sh
 CODEx_INSTRUCTIONS.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Personal data — never commit real PII, resumes, or application artifacts
+artifacts/
+config/profile.yaml
+
+# Generated / runtime
+*.pyc
+*.log
+.DS_Store
