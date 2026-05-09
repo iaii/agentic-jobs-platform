@@ -2,7 +2,7 @@
 
 A fully autonomous job-application pipeline — built on FastAPI, PostgreSQL, and Slack — that discovers jobs from multiple sources, scores and delivers them to you in real time, lets you track applications through a Slack-native interface, and drafts personalised cover letters using a multi-agent LLM workflow, down to auto-filling the ATS form.
 
-<img width="600" height="338" alt="output" src="https://github.com/user-attachments/assets/9d3a7afe-d7e2-4c04-a4bc-1c836adcf178" />
+<img width="600" height="338" alt="output" src="https://github.com/user-attachments/assets/fb69ebe1-d8c0-4c1f-b97d-287024180a66" />
 
 ---
 
