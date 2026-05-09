@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING  # noqa: F401
 
 if TYPE_CHECKING:
     from agentic_jobs.services.vault.retriever import VaultMatch
@@ -16,11 +16,15 @@ class ResearchBrief:
     company_context: str          # Scraped + synthesized summary of company mission/products
     role_themes: list[str]        # 3-5 key themes extracted from the JD
     jd_requirements: list[str]    # Parsed hard requirements from JD
-    matched_experiences: list[str]  # Candidate experiences that map to JD themes (max 2)
-    primary_experience: str        # The single best-fit experience to anchor the letter
-    vault_excerpts: list[str]     # Relevant vault section text (already truncated)
+    matched_experiences: list[str]  # Formatted summaries of matched experiences (filled by coordinator)
+    primary_experience: str        # Title of the primary experience (filled by coordinator)
+    vault_excerpts: list[str]     # Relevant vault section text (filled by coordinator)
     memory_notes: list[str]       # Long-term learnings from memory store
     suggested_project: str        # Which project from the kit to highlight
+    # Experience keys returned by ResearcherAgent — coordinator resolves these to verified bullets.
+    # Defaults let the old constructor call in parse_response work unchanged.
+    primary_experience_key: str = ""
+    matched_experience_keys: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

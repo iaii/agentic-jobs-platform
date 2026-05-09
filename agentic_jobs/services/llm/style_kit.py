@@ -28,6 +28,8 @@ class ProfileSnapshot:
     background: list[str]
     technical_strengths: dict[str, list[str]]
     work_style: list[str]
+    identity_notes: list[str]
+    what_cover_letter_should_add: list[str]
 
 
 @dataclass(slots=True)
@@ -113,6 +115,7 @@ class CoverLetterKit:
     donts: list[str]
     style_examples: list[str]
     reasoning_guidance: list[str]
+    domain_hints: list[str]   # from interests_and_domains.domain_mapping_examples
     learning: LearningConfig
 
     def find_project_by_theme(self, theme: str) -> ProjectCard | None:
@@ -148,6 +151,8 @@ def _hydrate_profile(data: dict) -> ProfileSnapshot:
         background=list(data.get("background", [])),
         technical_strengths={k: list(v) for k, v in data.get("technical_strengths", {}).items()},
         work_style=list(data.get("work_style", [])),
+        identity_notes=list(data.get("identity_notes", [])),
+        what_cover_letter_should_add=list(data.get("what_cover_letter_should_add", [])),
     )
 
 
@@ -228,6 +233,7 @@ def _build_kit(data: dict) -> CoverLetterKit:
     if not projects:
         raise ValueError("Cover letter kit must include at least one project.")
 
+    interests = data.get("interests_and_domains") or {}
     return CoverLetterKit(
         profile=_hydrate_profile(data["profile"]),
         education=list(data.get("education", [])),
@@ -242,6 +248,7 @@ def _build_kit(data: dict) -> CoverLetterKit:
         donts=list(data.get("donts", [])),
         style_examples=list(data.get("style_examples", [])),
         reasoning_guidance=list(data.get("reasoning_guidance", [])),
+        domain_hints=list(interests.get("domain_mapping_examples", [])),
         learning=_hydrate_learning(data.get("learning")),
     )
 

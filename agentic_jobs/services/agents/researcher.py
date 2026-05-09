@@ -38,34 +38,31 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
 
     def system_prompt(self, **kwargs: Any) -> str:
         return (
-            "You are a job application research analyst. Your task is to analyze a job description, "
-            "company information, and a candidate's background, then produce a structured research brief "
-            "that a cover letter writer will use to craft a tailored, strategic cover letter.\n\n"
+            "You are a job application research analyst. Analyze a job description, company information, "
+            "and a candidate's background. Produce a structured research brief for a cover letter writer.\n\n"
             "Focus on:\n"
-            "- What does this company actually do and care about? What are their values/mission?\n"
+            "- What does this company actually do and care about? Their real technical problems, not their tagline.\n"
             "- What are the 3-5 core themes this role requires (beyond surface-level skills)?\n"
-            "- Which specific candidate experiences and projects directly map to those themes?\n"
-            "- Which project from the candidate's portfolio is the strongest fit to highlight?\n"
+            "- Which of the candidate's verified experiences best maps to those themes?\n"
+            "- Which project from the candidate's portfolio is the strongest fit?\n"
             "- What hard requirements from the JD must the cover letter address?\n\n"
-            "CRITICAL CONSTRAINT: matched_experiences must ONLY reference experiences from the "
-            "candidate data provided below (experience_highlights and vault_excerpts). "
-            "Do NOT infer, extrapolate, or invent experiences not explicitly listed. "
-            "The vault_excerpts are PRIMARY SOURCES written by the candidate — treat them as "
-            "authoritative facts. If the JD requires X and no candidate experience covers X, "
-            "do not include it in matched_experiences. "
-            "Fewer accurate matches beats many fabricated ones.\n\n"
-            "SELECTION RULE: Return at most 2 matched_experiences — the two strongest, most specific "
-            "matches only. Do not return every possible match. Quality over coverage. "
-            "Also identify the single PRIMARY experience (the best fit) that should anchor the entire "
-            "letter — the writer will build the narrative around this one.\n\n"
+            "SELECTION RULE — experience keys:\n"
+            "You will receive a list called 'valid_experience_keys'. You MUST select keys only from "
+            "that list. Do NOT invent keys. Return at most 2 matched_experience_keys — the two "
+            "strongest, most specific matches. Also pick a single primary_experience_key — the one "
+            "experience that should anchor the entire letter. It may also appear in matched_experience_keys.\n"
+            "If the JD requires X and no experience covers it, omit it. Fewer accurate picks beats "
+            "many weak ones.\n\n"
+            "Use domain_hints (if provided) to decide which kind of experience to emphasize based on "
+            "the company's domain (search, productivity, health, hardware, etc.).\n\n"
             "Respond ONLY with valid JSON matching this schema exactly:\n"
             "{\n"
             '  "company_context": "2-3 sentence summary of company mission/products/culture",\n'
             '  "role_themes": ["theme1", "theme2", "theme3"],\n'
             '  "jd_requirements": ["requirement1", "requirement2"],\n'
-            '  "matched_experiences": ["best match only — 2 max"],\n'
-            '  "primary_experience": "the single experience to anchor the letter around",\n'
-            '  "suggested_project": "project name from the kit to highlight",\n'
+            '  "primary_experience_key": "one key from valid_experience_keys",\n'
+            '  "matched_experience_keys": ["key1", "key2"],\n'
+            '  "suggested_project": "project key from valid_project_keys",\n'
             '  "memory_notes": ["any relevant memory notes to carry forward"]\n'
             "}\n"
             "Do not wrap the JSON in code fences. Do not add commentary outside the JSON."
@@ -94,17 +91,18 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
             vault_parts.append(f"[{match.heading} | {match.file_path} | score={match.score:.2f}]\n{excerpt}")
         vault_text = "\n\n".join(vault_parts) if vault_parts else "None available."
 
-        # Experience highlights from kit — full bullets, not just title/summary
+        # Experience highlights from kit — full bullets with keys so researcher can pick
         experience_parts = []
         for exp in kit.experience:
-            lines = [f"### {exp.title}", f"Summary: {exp.summary}", "Verified facts:"]
+            lines = [f"### {exp.title} [key: {exp.key}]", f"Summary: {exp.summary}", "Verified facts:"]
             for bullet in exp.bullets:
                 lines.append(f"  - {bullet}")
             experience_parts.append("\n".join(lines))
         experience_text = "\n\n".join(experience_parts) if experience_parts else "None available."
 
-        # Projects from kit
-        project_names = [p.name for p in kit.projects]
+        # Valid selection keys
+        valid_experience_keys = [exp.key for exp in kit.experience]
+        valid_project_keys = [p.key for p in kit.projects]
 
         payload = {
             "company_name": company_name,
@@ -113,25 +111,34 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
             "vault_excerpts": vault_text,
             "candidate": {
                 "name": profile.full_name,
+                "bio": kit.profile.bio,
+                "identity_notes": kit.profile.identity_notes,
+                "what_cover_letter_should_add": kit.profile.what_cover_letter_should_add,
                 "skills": profile.skills[:15],
                 "stack": profile.stack[:10],
                 "experience_highlights": experience_text,
-                "projects_available": project_names,
             },
+            "valid_experience_keys": valid_experience_keys,
+            "valid_project_keys": valid_project_keys,
+            "domain_hints": kit.domain_hints,
             "memory_notes": [self._truncate(n, 200) for n in memory_notes[:5]],
         }
         return json.dumps(payload, ensure_ascii=False)
 
     def parse_response(self, raw: dict[str, Any]) -> ResearchBrief:
+        matched_keys = list(raw.get("matched_experience_keys", []))[:2]
+        primary_key = raw.get("primary_experience_key", "")
         return ResearchBrief(
             company_name=raw.get("company_name", ""),
-            company_domain="",  # filled in by coordinator
+            company_domain="",          # filled by coordinator
             company_context=raw.get("company_context", ""),
             role_themes=list(raw.get("role_themes", [])),
             jd_requirements=list(raw.get("jd_requirements", [])),
-            matched_experiences=list(raw.get("matched_experiences", []))[:2],
-            primary_experience=raw.get("primary_experience", ""),
-            vault_excerpts=[],   # raw excerpts stored by coordinator
+            matched_experiences=[],     # filled by coordinator after key resolution
+            primary_experience="",      # filled by coordinator after key resolution
+            vault_excerpts=[],          # filled by coordinator
             memory_notes=list(raw.get("memory_notes", [])),
             suggested_project=raw.get("suggested_project", ""),
+            primary_experience_key=primary_key,
+            matched_experience_keys=matched_keys,
         )

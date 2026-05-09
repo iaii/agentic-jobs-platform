@@ -4,14 +4,16 @@ import json
 import logging
 from typing import Any
 
+from agentic_jobs.config import settings
 from agentic_jobs.services.agents.base import BaseAgent
+from agentic_jobs.services.agents.constants import BANNED_PHRASES
 from agentic_jobs.services.agents.schemas import CoverLetterDraft, ResearchBrief, ReviewVerdict
 from agentic_jobs.services.llm.style_kit import CoverLetterKit
 
 
 LOGGER = logging.getLogger(__name__)
 
-_SCORING_RUBRIC = """
+_SCORING_RUBRIC_TEMPLATE = """
 Score on five dimensions (0-2 each, total /10):
 
 1. "So What?" Test (0-2): Does every paragraph answer WHY this matters?
@@ -39,7 +41,7 @@ Score on five dimensions (0-2 each, total /10):
    - 1: Mostly authentic but has filler phrases or explains the obvious
    - 2: Direct, confident, shows don't tell — the reader connects the dots
 
-Verdict: "pass" if total >= 7.0, otherwise "revise"
+Verdict: "pass" if total >= {threshold}, otherwise "revise"
 """
 
 _HIRING_MANAGER_QUESTIONS = """
@@ -84,6 +86,9 @@ class HiringManagerAgent(BaseAgent[ReviewVerdict]):
         role_title: str = kwargs.get("role_title", "the role")
         company_name: str = kwargs.get("company_name", "the company")
         round_number: int = kwargs.get("round_number", 1)
+        pass_threshold: float = kwargs.get("pass_threshold", settings.pipeline_pass_threshold)
+
+        scoring_rubric = _SCORING_RUBRIC_TEMPLATE.format(threshold=pass_threshold)
 
         return (
             f"You are a senior hiring manager at {company_name} reviewing a cover letter "
@@ -98,14 +103,14 @@ class HiringManagerAgent(BaseAgent[ReviewVerdict]):
             f"STEP 1 — Answer these questions honestly before scoring:\n"
             f"{_HIRING_MANAGER_QUESTIONS}\n\n"
 
-            f"STEP 2 — Score using this rubric:\n{_SCORING_RUBRIC}\n\n"
+            f"STEP 2 — Score using this rubric:\n{scoring_rubric}\n\n"
 
             f"STEP 3 — Write feedback:\n"
             f"- QUOTE the exact phrase that fails, not just the section name\n"
             f"- Say what to write INSTEAD, not just what's wrong\n"
             f"- Flag ALL redundancies — if two sentences make the same point, say which to cut\n"
             f"- Flag ALL connection-narrating ('natural fit for', 'will enable me to contribute')\n"
-            f"- Check banned_phrases list — any match = Voice & Confidence score 0\n"
+            f"- Check the banned_phrases list in the user message — any match = Voice score 0\n"
             f"- On revision rounds: acknowledge what improved and what still needs work\n\n"
 
             f"Respond ONLY with valid JSON:\n"
@@ -137,17 +142,7 @@ class HiringManagerAgent(BaseAgent[ReviewVerdict]):
                 "donts": kit.donts,
             },
             "candidate_matched_experiences": research_brief.matched_experiences,
-            "banned_phrases": [
-                "I am drawn to", "I am excited to", "I am interested in",
-                "Their work", "Their mission", "They are",
-                "I look forward to discussing", "how my experiences align",
-                "your company's goals", "I would love the opportunity",
-                "I believe my skills make me a strong fit",
-                "This demonstrates my ability to", "This work is similar to",
-                "a natural fit for", "This experience will enable me to",
-                "leveraging my expertise", "drive meaningful impact",
-                "I want to be part of",
-            ],
+            "banned_phrases": BANNED_PHRASES,
         }
         return json.dumps(payload, ensure_ascii=False)
 
@@ -160,7 +155,7 @@ class HiringManagerAgent(BaseAgent[ReviewVerdict]):
 
         verdict = raw.get("verdict", "revise")
         if verdict not in ("pass", "revise"):
-            verdict = "pass" if score >= 7.0 else "revise"
+            verdict = "pass" if score >= settings.pipeline_pass_threshold else "revise"
 
         return ReviewVerdict(
             score=round(score, 1),

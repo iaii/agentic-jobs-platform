@@ -27,13 +27,10 @@ from agentic_jobs.services.agents.schemas import (
 )
 from agentic_jobs.services.agents.writer import WriterAgent, compute_word_budget
 from agentic_jobs.services.applications.stage import apply_stage
-from agentic_jobs.services.artifacts.utils import ARTIFACTS_DIR
+from agentic_jobs.services.artifacts.utils import ARTIFACTS_DIR, load_artifact_text
 from agentic_jobs.services.llm.prompt_builder import (
     ProfileBundle,
     STACK_DEFAULTS,
-    build_prompt_payload,
-    DraftContext,
-    FeedbackNote,
 )
 from agentic_jobs.services.llm.runner import LlmBackendError
 from agentic_jobs.services.llm.style_kit import CoverLetterKit, load_cover_letter_kit
@@ -48,6 +45,27 @@ from agentic_jobs.services.vault.graph import WikilinkGraph
 
 
 LOGGER = logging.getLogger(__name__)
+
+_JD_REQUIREMENTS_MARKERS = (
+    "qualifications", "requirements", "you will", "what you'll",
+    "responsibilities", "what we're looking for", "about you",
+)
+
+
+def _vault_query_from_jd(jd_text: str) -> str:
+    """Extract requirements-section text from JD for vault search.
+
+    JDs typically open with 2-3 paragraphs of company marketing copy.
+    Searching that finds generic content, not candidate-relevant context.
+    This skips to the requirements/qualifications section instead.
+    """
+    lower = jd_text.lower()
+    for marker in _JD_REQUIREMENTS_MARKERS:
+        idx = lower.find(marker)
+        if 0 < idx < len(jd_text) - 100:
+            return jd_text[idx:idx + 600]
+    # Fallback: skip likely intro paragraph (~first 200 chars)
+    return jd_text[200:800]
 
 
 class PipelineCoordinatorError(RuntimeError):
@@ -116,7 +134,10 @@ class PipelineCoordinator:
             agent_log=[],
         )
         self.session.add(run_record)
-        self.session.flush()  # get the ID
+        # Mark in-progress immediately so the tracker reflects it before the LLM work starts
+        apply_stage(application, ApplicationStage.COVER_LETTER_IN_PROGRESS)
+        self.session.commit()
+        await self._refresh_tracker()
 
         try:
             # ----------------------------------------------------------------
@@ -151,10 +172,40 @@ class PipelineCoordinator:
                 kit=kit,
                 memory_notes=memory_notes,
             )
-            # Attach raw vault text for writer/reviewer context
+            # Fill coordinator-owned fields
             research_brief.company_domain = company_domain
             research_brief.company_name = research_brief.company_name or job.company_name
             research_brief.vault_excerpts = [m.text for m in vault_matches[:4]]
+
+            # Resolve researcher's experience keys to verified bullets.
+            # The researcher returns keys (e.g. "jci_rag_eval"); we look up the actual
+            # ExperienceHighlight from the kit so writers never see free-form LLM text.
+            valid_keys = {e.key for e in kit.experience}
+            primary_key = research_brief.primary_experience_key
+            if primary_key and primary_key not in valid_keys:
+                LOGGER.warning(
+                    "[coordinator] Researcher returned unknown primary key %r; falling back to first experience",
+                    primary_key,
+                )
+                primary_key = kit.experience[0].key if kit.experience else ""
+                research_brief.primary_experience_key = primary_key
+
+            matched_keys = [k for k in research_brief.matched_experience_keys if k in valid_keys]
+            research_brief.matched_experience_keys = matched_keys
+
+            # Build ordered de-duplicated key list: primary first, then additional matches
+            ordered_keys: list[str] = []
+            for k in ([primary_key] if primary_key else []) + matched_keys:
+                if k not in ordered_keys:
+                    ordered_keys.append(k)
+
+            primary_exp = next((e for e in kit.experience if e.key == primary_key), None)
+            research_brief.primary_experience = primary_exp.title if primary_exp else ""
+
+            matched_exps = [e for e in kit.experience if e.key in matched_keys]
+            research_brief.matched_experiences = [
+                f"{e.title}: {'; '.join(e.bullets[:2])}" for e in matched_exps
+            ]
 
             agent_log.append({
                 "phase": "researcher",
@@ -184,7 +235,9 @@ class PipelineCoordinator:
                     research_brief=research_brief,
                     profile=profile,
                     kit=kit,
+                    full_name=profile.full_name,
                     word_budget=word_budget,
+                    matched_experience_keys=ordered_keys,
                     is_revision=is_revision,
                     previous_draft=draft if is_revision else None,
                     reviewer_feedback=review_history[-1] if is_revision else None,
@@ -213,6 +266,7 @@ class PipelineCoordinator:
                     role_title=job.title,
                     company_name=job.company_name,
                     round_number=revision_round + 1,
+                    pass_threshold=pass_threshold,
                 )
                 review_history.append(verdict)
 
@@ -265,8 +319,6 @@ class PipelineCoordinator:
                         text=note,
                     ))
 
-            apply_stage(application, ApplicationStage.COVER_LETTER_IN_PROGRESS)
-
             # Update PipelineRun
             final_score = review_history[-1].score if review_history else None
             run_record.status = PipelineStatus.COMPLETED
@@ -304,6 +356,115 @@ class PipelineCoordinator:
             run_record.finished_at = datetime.now(timezone.utc)
             self.session.commit()
             raise PipelineCoordinatorError(f"Pipeline failed: {exc}") from exc
+
+    # ------------------------------------------------------------------
+    # Revision-only path (no researcher, no review loop)
+    # ------------------------------------------------------------------
+
+    async def run_revision(
+        self,
+        application_id: UUID,
+        *,
+        notes: list[str],
+        author: str | None = None,
+        post_to_slack: bool = False,
+    ) -> CoverLetterDraft:
+        """Re-run only the WriterAgent against the existing draft with user feedback.
+
+        Used when thread feedback is a content edit ("make the opener more specific")
+        rather than a full re-research request. Skips the ResearcherAgent and the
+        review loop — the writer revises in one pass and the result is persisted.
+
+        Falls back to run() if no previous draft exists.
+        """
+        from agentic_jobs.core.enums import FeedbackRole
+        from agentic_jobs.services.agents.guardrails import sanitize
+
+        application = self._ensure_application(application_id)
+        job = application.job
+        if job is None:
+            raise PipelineCoordinatorError("Application missing job reference.")
+
+        previous_text = load_artifact_text(self.session, application_id, ArtifactType.COVER_LETTER_VERSION)
+        if not previous_text:
+            LOGGER.info("[coordinator] No previous draft for %s — falling back to full pipeline", application_id)
+            return (await self.run(application_id, notes=notes, author=author, post_to_slack=post_to_slack)).final_draft
+
+        apply_stage(application, ApplicationStage.COVER_LETTER_IN_PROGRESS)
+        self.session.commit()
+        await self._refresh_tracker()
+
+        kit = self._load_kit()
+        profile = self._build_profile_bundle()
+        word_budget = compute_word_budget()
+        clean_notes = [sanitize(n, source="slack:user_note") for n in notes if n]
+
+        previous_draft = CoverLetterDraft(
+            version=0,
+            content_md=previous_text,
+            word_count=len(previous_text.split()),
+        )
+        # Treat user notes as reviewer feedback so the writer knows what to change
+        user_verdict = ReviewVerdict(
+            score=0.0,
+            verdict="revise",
+            overall_impression="User requested changes via thread",
+            feedback=clean_notes,
+            strengths=["Keep what is not mentioned in the feedback unchanged"],
+            areas_for_improvement=clean_notes,
+        )
+        # Minimal brief — company name from DB, no fresh research needed
+        research_brief = ResearchBrief(
+            company_name=job.company_name,
+            company_domain=extract_domain(job.url),
+            company_context="",
+            role_themes=[],
+            jd_requirements=[],
+            matched_experiences=[],
+            primary_experience="",
+            vault_excerpts=[],
+            memory_notes=[],
+            suggested_project="",
+        )
+
+        writer = WriterAgent()
+        draft = await writer.run(
+            research_brief=research_brief,
+            profile=profile,
+            kit=kit,
+            full_name=profile.full_name,
+            word_budget=word_budget,
+            matched_experience_keys=[],  # all experiences available to writer
+            is_revision=True,
+            previous_draft=previous_draft,
+            reviewer_feedback=user_verdict,
+            user_notes=clean_notes,
+        )
+        draft.version = self._count_cover_letter_versions(application_id) + 1
+
+        uri = self._write_artifact(application, draft.version, draft.content_md)
+        self.session.add(models.ApplicationFeedback(
+            application_id=application_id,
+            role=FeedbackRole.ASSISTANT,
+            text=draft.content_md,
+        ))
+        if clean_notes:
+            for note in clean_notes:
+                self.session.add(models.ApplicationFeedback(
+                    application_id=application_id,
+                    role=FeedbackRole.USER,
+                    author=author,
+                    text=note,
+                ))
+        self.session.commit()
+
+        if post_to_slack:
+            await self._post_to_thread(
+                application,
+                f"*Revised draft* (v{draft.version}) | {draft.word_count} words\n\n{draft.content_md}",
+            )
+
+        return draft
 
     # ------------------------------------------------------------------
     # Data gathering helpers
@@ -346,8 +507,7 @@ class PipelineCoordinator:
             sections = parser.parse_all()
             graph = WikilinkGraph(sections)
             retriever = VaultRetriever(self.session, graph)
-            # Use key terms from JD as search query
-            query = jd_text[:500]
+            query = _vault_query_from_jd(jd_text)
             return await retriever.search(query)
         except Exception as exc:
             LOGGER.warning("[coordinator] Vault search failed: %s", exc)
@@ -479,3 +639,12 @@ class PipelineCoordinator:
 
     async def _post_to_thread(self, application: models.Application, text: str) -> None:
         await self._post_progress(application, True, text)
+
+    async def _refresh_tracker(self) -> None:
+        if not self.slack_client or not settings.slack_jobs_tracker_channel:
+            return
+        from agentic_jobs.services.slack.tracker import MasterTracker
+        try:
+            await MasterTracker(self.session, self.slack_client).refresh()
+        except Exception:
+            LOGGER.warning("[coordinator] Failed to refresh master tracker")

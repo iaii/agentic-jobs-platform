@@ -214,6 +214,10 @@ class DraftGenerator:
         if clean_notes and persist_notes:
             self._persist_user_notes(application_id, clean_notes, author)
 
+        # Mark in-progress immediately so the tracker updates before the LLM call
+        apply_stage(application, ApplicationStage.COVER_LETTER_IN_PROGRESS)
+        self.session.commit()
+
         context = DraftContext(
             application=application,
             job=job,
@@ -232,8 +236,6 @@ class DraftGenerator:
 
         slack_channel_id = application.slack_channel_id
         slack_thread_ts = application.slack_thread_ts
-
-        apply_stage(application, ApplicationStage.COVER_LETTER_IN_PROGRESS)
 
         self.session.commit()
 

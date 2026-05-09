@@ -306,7 +306,6 @@ dos:
   - "Reference specific technologies and projects by name from the verified experience bullets"
   - "Use metrics and outcomes that actually appear in the experience bullets or vault excerpts"
   - "Sound like a confident engineer: short sentences, active voice"
-  - "Connect experiences to JD themes explicitly: 'This is similar to X where I had to Y'"
   - "Let the candidate's authentic voice come through — direct, grounded, no corporate template feel"
 
 donts:
@@ -334,7 +333,6 @@ style_examples:
   - "While my recent focus is Agentic AI, my foundation rests on solid software engineering principles."
   - "Through my internships at Johnson Controls and Meta, as well as my academic work, I have developed proficiency in Python and Java."
   - "I understand the full SDLC process and have experience working in teams using CI/CD pipelines, agile methodology, and release management."
-  - "I would love the opportunity to interview and be a part of the team."
 
 reasoning_guidance:
   how_to_connect_me_to_a_job:

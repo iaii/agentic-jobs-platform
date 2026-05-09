@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from agentic_jobs.services.agents.base import BaseAgent
+from agentic_jobs.services.agents.constants import BANNED_PHRASES
 from agentic_jobs.services.agents.schemas import CoverLetterDraft, ResearchBrief, ReviewVerdict
 from agentic_jobs.services.documents.style import get_document_style
 from agentic_jobs.services.llm.prompt_builder import ProfileBundle
@@ -61,86 +62,100 @@ class WriterAgent(BaseAgent[CoverLetterDraft]):
     def system_prompt(self, **kwargs: Any) -> str:
         word_budget: int = kwargs.get("word_budget", compute_word_budget())
         is_revision: bool = kwargs.get("is_revision", False)
+        kit: CoverLetterKit | None = kwargs.get("kit")
+        full_name: str = kwargs.get("full_name", "")
+
+        # Pull live rules from the kit so tone/dos/donts/signoff are system instructions,
+        # not JSON data. This is what makes the LLM actually follow them.
+        if kit:
+            tone_line = ", ".join(kit.tone.overall) if kit.tone.overall else ""
+            voice_line = " | ".join(kit.tone.voice) if kit.tone.voice else ""
+            dislikes_line = "\n".join(f"- {d}" for d in kit.tone.dislikes) if kit.tone.dislikes else ""
+            dos_lines = "\n".join(f"- {d}" for d in kit.dos) if kit.dos else ""
+            donts_lines = "\n".join(f"- {d}" for d in kit.donts) if kit.donts else ""
+            signoff = kit.structure.signoff or "Best regards,"
+            # Use up to 3 real style examples as the "GOOD VOICE" anchor
+            style_anchor = "\n".join(f'"{ex}"' for ex in (kit.style_examples or [])[:3])
+        else:
+            tone_line = "direct, grounded, enthusiastic"
+            voice_line = "first person | conversational but professional | short clear sentences"
+            dislikes_line = "- No em dashes\n- No semicolons\n- No over-the-top hype"
+            dos_lines = "- Open with a specific observation about the company\n- Use concrete examples"
+            donts_lines = "- Do not invent metrics\n- Do not copy resume bullets verbatim"
+            signoff = "Best regards,"
+            style_anchor = ""
 
         base = (
             f"You are a cover letter writer. You MUST respond with valid JSON only. "
             f"No plain text. No code fences. Max {word_budget} words in the letter.\n\n"
 
-            f"GUIDING QUESTIONS — every paragraph you write must answer these:\n"
-            f"- SO WHAT? Why does this fact matter to the reader? Don't just state what you did.\n"
-            f"- WHY THIS COMPANY? What specifically about their problem excites you and why?\n"
+            f"CANDIDATE VOICE — write in this voice throughout, every sentence:\n"
+            f"Tone: {tone_line}\n"
+            f"Voice: {voice_line}\n"
+            f"Style dislikes (never use):\n{dislikes_line}\n\n"
+
+            f"GUIDING QUESTIONS — every paragraph must answer at least one:\n"
+            f"- SO WHAT? Why does this fact matter to the reader?\n"
+            f"- WHY THIS COMPANY? What specifically about their problem?\n"
             f"- WHY YOU? What do you bring that another candidate doesn't?\n"
-            f"- WHAT DID YOU LEARN? Show growth, not just output.\n"
-            f"If a sentence doesn't answer at least one of these, delete it.\n\n"
+            f"If a sentence doesn't answer one of these, delete it.\n\n"
 
-            f"CRITICAL RULES (violating any = failure):\n"
-            f"1. First person ('I built', 'I designed'). Company BY NAME ('Quantcast is building'). "
-            f"NEVER 'their mission', 'their work', 'the company'.\n"
+            f"CANDIDATE DOS (follow every one):\n{dos_lines}\n\n"
+
+            f"CANDIDATE DON'TS (violating any = failure):\n{donts_lines}\n\n"
+
+            f"CRITICAL RULES:\n"
+            f"1. First person ('I built', 'I designed'). Company BY NAME, never 'their mission'.\n"
             f"2. Only facts from verified_experience_bullets or vault_context. No invented metrics.\n"
-            f"3. NO REDUNDANCY. Never repeat the same idea, phrase, or keyword twice. "
-            f"Read every sentence and ask: did I already say this? If two sentences make the "
-            f"same point, cut one. 'Improved chatbot reliability... improved chatbot reliability' = fail.\n"
-            f"4. Never narrate connections or explain why something fits. "
-            f"BAD: 'This is a natural fit for X because it requires analyzing...' "
-            f"BAD: 'This experience will enable me to contribute to...' "
-            f"BAD: 'leveraging my expertise in X to drive impact at Y' "
-            f"GOOD: Just describe what you built. The reader connects the dots.\n"
+            f"3. NO REDUNDANCY. If two sentences make the same point, cut one.\n"
+            f"4. Never narrate connections. Just describe what you built — the reader connects the dots.\n"
             f"5. Never echo JSON field names ('In my primary experience', 'my matched experience').\n"
-            f"6. Every claim needs a concrete detail — a number, a tool name, or a specific outcome. "
-            f"No vague phrases like 'complex patterns' or 'meaningful impact'.\n\n"
+            f"6. Specificity rule: use the exact tool names and outcomes from the bullets. "
+            f"PERCENTAGES AND NUMBERS: if a bullet contains a specific number (e.g. '500 jobs per minute', "
+            f"'3 million rows'), use it exactly. If a bullet has NO number, write NO number — "
+            f"describe the outcome in words only. It is NEVER acceptable to write a percentage "
+            f"(like '25%' or '30%') that does not appear verbatim in the verified_experience_bullets.\n\n"
 
-            f"BANNED PHRASES (use of any = instant fail):\n"
-            f"- 'I am drawn to', 'I am excited to', 'I am interested in'\n"
-            f"- 'Their work', 'Their mission', 'They are'\n"
-            f"- 'I look forward to discussing', 'how my experiences align'\n"
-            f"- 'your company's goals', 'I would love the opportunity'\n"
-            f"- 'I believe my skills make me a strong fit'\n"
-            f"- 'This demonstrates my ability to', 'This work is similar to'\n"
-            f"- 'a natural fit for', 'This experience will enable me to'\n"
-            f"- 'leveraging my expertise', 'drive meaningful impact'\n"
-            f"- 'I want to be part of' (too vague — say WHY)\n\n"
+            f"BANNED PHRASES (instant fail — using any of these in the letter = 0 on Voice):\n"
+            + "".join(f"- '{p}'\n" for p in BANNED_PHRASES)
+            + "\n"
 
-            f"STRUCTURE:\n"
+            f"STRUCTURE — content_md must contain exactly these parts in order:\n"
             f"1. 'Dear Hiring Manager,'\n"
-            f"2. Opener (2-3 sentences): Name a SPECIFIC technical problem the company is solving "
-            f"(not a generic mission statement). Then say why YOU care — connect it to something "
-            f"you've built or struggled with. Answer: why this company, why now, why you?\n"
-            f"3. Impact (2-3 sentences): Your strongest experience. Lead with the outcome or "
-            f"insight, not the task. Use one concrete metric. Answer: so what?\n"
-            f"4. Supporting (1-2 sentences): ONE different skill or experience that adds a new "
-            f"dimension. Must not overlap with Impact. Answer: what else do you bring?\n"
-            f"5. Close (1-2 sentences): Confident, specific. Name what you'd do or build. "
-            f"No filler, no begging, no generic 'impact' language.\n"
-            f"6. 'Best regards,'\n\n"
+            f"2. Opener (2-3 sentences): Name a SPECIFIC technical problem the company solves. "
+            f"Connect it immediately to something you built. Why this company, why now, why you?\n"
+            f"3. Impact (2-3 sentences): Strongest experience. Lead with the outcome or insight, "
+            f"not the task. One concrete metric.\n"
+            f"4. Supporting (1-2 sentences): ONE different skill. Must not overlap with Impact.\n"
+            f"5. Close (1-2 sentences): Confident, specific. Name what you'd build. No filler.\n"
+            f"6. '{signoff}' then a blank line then the candidate's name from candidate.name "
+            f"(or as overridden by user_instructions if the user asked to change it).\n\n"
+        )
 
-            f"BAD OPENER: 'Quantcast processes billions of data points daily to help businesses "
-            f"understand consumer behavior. I want to be part of building that infrastructure.'\n"
-            f"WHY IT'S BAD: States a fact about the company + a vague desire. Doesn't answer "
-            f"'why you?' or 'so what?'\n"
+        if style_anchor:
+            base += (
+                f"VOICE ANCHOR — these sentences are from the candidate's best past letters. "
+                f"Match this exact register:\n{style_anchor}\n\n"
+            )
+
+        base += (
+            f"BAD OPENER: 'Quantcast processes billions of data points. I want to be part of that.'\n"
+            f"WHY BAD: Vague desire, no personal connection.\n"
             f"GOOD OPENER: 'Quantcast turns raw bidstream data into real-time audience models — "
             f"the kind of feature engineering problem I spent six months solving when I built "
             f"anomaly detection on 3M rows of device telemetry at Johnson Controls.'\n"
-            f"WHY IT'S GOOD: Names a specific technical challenge, immediately connects to "
-            f"candidate's own work, reader sees the fit without being told.\n\n"
-
-            f"BAD CLOSE: 'I would bring both the data engineering depth and the builder mindset "
-            f"that this role calls for.'\n"
-            f"WHY IT'S BAD: Generic — could be pasted into any letter. Says nothing specific.\n"
-            f"GOOD CLOSE: 'I want to build the pipeline that turns Quantcast's bidstream "
-            f"into the features that win auctions.'\n"
-            f"WHY IT'S GOOD: Names a specific thing the candidate wants to build at THIS company.\n\n"
+            f"WHY GOOD: Specific problem + immediate personal connection.\n\n"
         )
 
         if is_revision:
             base += (
-                "You are revising a previous draft based on hiring manager feedback. "
-                "Address each feedback item specifically. Keep what is working (see strengths). "
-                "Do not rewrite sections that received no feedback.\n\n"
+                "You are revising a previous draft. Address each feedback item specifically. "
+                "Keep what is working. Do not rewrite sections with no feedback.\n\n"
             )
 
         base += (
             "Respond ONLY with valid JSON:\n"
-            '{"content_md": "the full cover letter text", '
+            '{"content_md": "full letter from Dear Hiring Manager through signoff and name", '
             '"sections_used": ["opener", "impact", "fit", "close"], '
             '"word_count": 350}\n'
             "Do not wrap in code fences."
@@ -156,8 +171,27 @@ class WriterAgent(BaseAgent[CoverLetterDraft]):
         previous_draft: CoverLetterDraft | None = kwargs.get("previous_draft")
         reviewer_feedback: ReviewVerdict | None = kwargs.get("reviewer_feedback")
         user_notes: list[str] = kwargs.get("user_notes", [])
+        # Keys resolved by coordinator — only verified bullets for these experiences reach the writer
+        matched_experience_keys: list[str] = kwargs.get("matched_experience_keys", [])
 
-        payload: dict[str, Any] = {
+        # Filter kit experience to only the researcher-selected entries.
+        # If no keys (e.g. fallback path), send all experiences.
+        if matched_experience_keys:
+            key_set = set(matched_experience_keys)
+            selected_experiences = [e for e in kit.experience if e.key in key_set]
+            # Preserve researcher's ordering: primary key first
+            selected_experiences.sort(key=lambda e: matched_experience_keys.index(e.key))
+        else:
+            selected_experiences = kit.experience
+
+        payload: dict[str, Any] = {}
+
+        # User instructions go FIRST so the LLM sees them before the data payload.
+        # These must override anything in the data below (name, formatting, etc.).
+        if user_notes:
+            payload["user_instructions"] = user_notes
+
+        payload.update({
             "word_budget": word_budget,
             "role": {
                 "company": research_brief.company_name,
@@ -168,35 +202,19 @@ class WriterAgent(BaseAgent[CoverLetterDraft]):
             "candidate": {
                 "name": profile.full_name,
                 "primary_experience": research_brief.primary_experience,
-                "matched_experiences": research_brief.matched_experiences,
                 "suggested_project": research_brief.suggested_project,
                 "vault_context": research_brief.vault_excerpts[:3],
             },
+            # AUTHORITATIVE source: verified bullets from the kit for researcher-selected experiences.
+            # These are the ONLY facts the writer may use. Do not infer beyond them.
             "verified_experience_bullets": [
                 {"title": exp.title, "bullets": exp.bullets}
-                for exp in kit.experience
+                for exp in selected_experiences
             ],
-            "tone_rules": {
-                "overall": kit.tone.overall,
-                "voice": kit.tone.voice,
-                "likes": kit.tone.likes,
-                "dislikes": kit.tone.dislikes,
-                "dos": kit.dos,
-                "donts": kit.donts,
-            },
-            "structure": {
-                "greeting": kit.structure.greeting,
-                "opener_guidance": kit.structure.opener_guidance,
-                "impact_samples": kit.structure.impact.samples[:3],
-                "plan_bullets": kit.structure.plan.bullets[:3],
-                "signoff": kit.structure.signoff,
-            },
-            "style_examples": kit.style_examples[:2],
+            "opener_guidance": kit.structure.opener_guidance,
+            "impact_samples": kit.structure.impact.samples[:3],
             "memory_notes": research_brief.memory_notes,
-        }
-
-        if user_notes:
-            payload["user_instructions"] = user_notes
+        })
 
         if is_revision and previous_draft and reviewer_feedback:
             payload["revision"] = {
