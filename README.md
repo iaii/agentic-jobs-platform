@@ -2,14 +2,6 @@
 
 A fully autonomous job-application pipeline — built on FastAPI, PostgreSQL, and Slack — that discovers jobs from multiple sources, scores and delivers them to you in real time, lets you track applications through a Slack-native interface, and drafts personalised cover letters using a multi-agent LLM workflow, down to auto-filling the ATS form.
 
-<img width="600" height="338" alt="output" src="https://github.com/user-attachments/assets/eb6c42fc-5a08-4623-b3e8-9cc5886ee356" />
-
-
-
-<img width="600" height="338" src="https://github.com/user-attachments/assets/9587dfb5-5d1b-40d2-b1fb-257e38c937fa" />
-
-
-
 ---
 
 ## Table of Contents
@@ -242,6 +234,9 @@ Future jobs from this domain flow into digests normally
 
 ## Slack integration
 
+<img width="1280" height="720" alt="output2" src="https://github.com/user-attachments/assets/62083612-29f4-4a4a-aa96-ed5954d88752" />
+
+
 ### Channel layout
 
 | Channel env var | Purpose |
@@ -311,6 +306,8 @@ Collect needs-review candidates
 ---
 
 ## Cover letter drafting (LLM)
+
+
 
 ### Profile kit
 
@@ -494,6 +491,9 @@ Every application accumulates files under `artifacts/{human_id}/`:
 ---
 
 ## Autofill pipeline
+
+<img width="1280" height="720" alt="output3" src="https://github.com/user-attachments/assets/0fdb73bb-5522-4723-8453-31f7939f0208" />
+
 
 ### Flow
 
