@@ -6,7 +6,7 @@ A fully autonomous job-application pipeline — built on FastAPI, PostgreSQL, an
 
 
 
-<img width="600" height="338" alt="output" src="https://github.com/user-attachments/assets/9587dfb5-5d1b-40d2-b1fb-257e38c937fa" />
+<img width="600" height="338" src="https://github.com/user-attachments/assets/9587dfb5-5d1b-40d2-b1fb-257e38c937fa" />
 
 
 
