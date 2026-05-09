@@ -54,8 +54,6 @@ The server starts three long-running background tasks:
 
 ## Discovery pipeline
 
-<img width="1920" height="1080" alt="output1" src="https://github.com/user-attachments/assets/fc63b387-ac4f-4cbd-956a-4383ea54017d" />
-
 ### SourceAdapter protocol
 
 Every source implements the `SourceAdapter` async protocol defined in `services/discovery/base.py`:
@@ -236,8 +234,7 @@ Future jobs from this domain flow into digests normally
 
 ## Slack integration
 
-<img width="1280" height="720" alt="output2" src="https://github.com/user-attachments/assets/62083612-29f4-4a4a-aa96-ed5954d88752" />
-
+<img width="1920" height="1080" alt="output1" src="https://github.com/user-attachments/assets/fc63b387-ac4f-4cbd-956a-4383ea54017d" />
 
 ### Channel layout
 
@@ -309,7 +306,7 @@ Collect needs-review candidates
 
 ## Cover letter drafting (LLM)
 
-
+<img width="1280" height="720" alt="output2" src="https://github.com/user-attachments/assets/62083612-29f4-4a4a-aa96-ed5954d88752" />
 
 ### Profile kit
 
