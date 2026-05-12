@@ -51,6 +51,7 @@ class Job(Base):
     requirements: Mapped[List[dict]] = mapped_column(
         JSONB, nullable=False, default=list
     )
+    company_website: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     job_id_canonical: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     scraped_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

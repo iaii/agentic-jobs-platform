@@ -117,6 +117,9 @@ class GreenhouseAdapter(SourceAdapter):
                 company = organization.get("name")
                 if isinstance(company, str) and company.strip():
                     company_name = company.strip()
+                website = organization.get("sameAs") or organization.get("url")
+                if isinstance(website, str) and website.strip().startswith("http"):
+                    detail_metadata["company_website"] = website.strip()
 
         if not company_name:
             company_name = self._slug_to_company(job_ref.org_slug)

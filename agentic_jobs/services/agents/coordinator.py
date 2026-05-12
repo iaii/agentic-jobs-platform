@@ -123,7 +123,7 @@ class PipelineCoordinator:
         kit = self._load_kit()
         profile = self._build_profile_bundle()
         word_budget = compute_word_budget()
-        company_domain = extract_domain(job.url)
+        company_domain = extract_domain(job.company_website) if job.company_website else None
         agent_log: list[dict] = []
 
         # Create PipelineRun record
@@ -137,6 +137,10 @@ class PipelineCoordinator:
         # Mark in-progress immediately so the tracker reflects it before the LLM work starts
         apply_stage(application, ApplicationStage.COVER_LETTER_IN_PROGRESS)
         self.session.commit()
+        # Capture the ID now — after commit SQLAlchemy expires all attributes including PKs,
+        # so accessing run_record.id later would trigger a lazy-load on a potentially
+        # detached session and raise DetachedInstanceError.
+        pipeline_run_id = run_record.id
         await self._refresh_tracker()
 
         try:
@@ -173,7 +177,7 @@ class PipelineCoordinator:
                 memory_notes=memory_notes,
             )
             # Fill coordinator-owned fields
-            research_brief.company_domain = company_domain
+            research_brief.company_domain = company_domain or ""
             research_brief.company_name = research_brief.company_name or job.company_name
             research_brief.vault_excerpts = [m.text for m in vault_matches[:4]]
 
@@ -213,6 +217,16 @@ class PipelineCoordinator:
                 "themes": research_brief.role_themes,
                 "suggested_project": research_brief.suggested_project,
             })
+
+            # Write intelligence notes to Obsidian — candidate reference only, not used by writer
+            if research_brief.company_intelligence and company_domain:
+                try:
+                    CompanyResearchCache(self.session).write_intelligence_to_vault(
+                        job.company_name, company_domain, research_brief.company_intelligence
+                    )
+                except Exception:
+                    LOGGER.warning("[coordinator] Failed to write company intelligence to vault")
+
             await self._post_progress(application, post_to_slack, "_Research complete. Writing draft..._")
 
             # ----------------------------------------------------------------
@@ -346,7 +360,7 @@ class PipelineCoordinator:
                 final_draft=draft,
                 research_brief=research_brief,
                 review_history=review_history,
-                pipeline_run_id=run_record.id,
+                pipeline_run_id=pipeline_run_id,
                 total_duration_ms=total_ms,
             )
 
@@ -416,7 +430,7 @@ class PipelineCoordinator:
         # Minimal brief — company name from DB, no fresh research needed
         research_brief = ResearchBrief(
             company_name=job.company_name,
-            company_domain=extract_domain(job.url),
+            company_domain=extract_domain(job.company_website) if job.company_website else "",
             company_context="",
             role_themes=[],
             jd_requirements=[],
@@ -471,9 +485,17 @@ class PipelineCoordinator:
     # ------------------------------------------------------------------
 
     async def _gather_company_data(
-        self, company_name: str, domain: str, application_id: UUID
+        self, company_name: str, domain: str | None, application_id: UUID
     ) -> list:
         from agentic_jobs.services.research.scraper import ScrapedPage
+        if not domain:
+            LOGGER.warning(
+                "[coordinator] No company_website for %s — skipping research scrape. "
+                "Re-run discovery after this job's ATS page is re-ingested.",
+                company_name,
+            )
+            return []
+
         cache = CompanyResearchCache(self.session)
         cached = cache.get(domain)
         if cached:

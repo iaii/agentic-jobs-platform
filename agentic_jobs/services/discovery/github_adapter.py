@@ -14,6 +14,36 @@ from agentic_jobs.services.discovery.base import DiscoveryError, JobDetail, JobR
 from agentic_jobs.services.discovery.rate_limiter import AsyncRateLimiter
 
 
+# Job aggregator domains whose "company_url" fields point to their own profile
+# pages, not the company's real website. These are filtered out so we don't
+# store e.g. "https://simplify.jobs/c/Chewy" as a company website.
+_AGGREGATOR_PROFILE_HOSTS: frozenset[str] = frozenset([
+    "simplify.jobs",
+    "www.simplify.jobs",
+    "linkedin.com",
+    "www.linkedin.com",
+    "glassdoor.com",
+    "www.glassdoor.com",
+    "crunchbase.com",
+    "www.crunchbase.com",
+    "builtin.com",
+    "www.builtin.com",
+])
+
+
+def _is_real_company_website(url: str) -> bool:
+    """Return True only if url looks like the company's own website, not an aggregator profile."""
+    url = url.strip()
+    if not url.startswith("http"):
+        return False
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(url).netloc.lower()
+        return host not in _AGGREGATOR_PROFILE_HOSTS
+    except Exception:
+        return False
+
+
 def _first_non_empty(*values: Any, default: str | None = None) -> str | None:
     for value in values:
         if isinstance(value, str) and value.strip():
@@ -193,11 +223,15 @@ class GithubPositionsAdapter(SourceAdapter):
         ) or _infer_company_from_url(item.get("company_url")) or _infer_company_from_url(job_ref.detail_url) or "Unknown Company"
 
         html = self._build_detail_html(job_ref, item, company_name)
+        detail_metadata: dict[str, Any] = {"source_item": item}
+        company_url = item.get("company_url") or item.get("company_website")
+        if isinstance(company_url, str) and _is_real_company_website(company_url):
+            detail_metadata["company_website"] = company_url.strip()
         return JobDetail(
             job_ref=job_ref,
             html=html,
             company_name=company_name,
-            metadata={"source_item": item},
+            metadata=detail_metadata,
         )
 
     def canonical_id(self, job_ref: JobRef) -> str:

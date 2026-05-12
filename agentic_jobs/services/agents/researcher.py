@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from agentic_jobs.services.agents.base import BaseAgent
-from agentic_jobs.services.agents.schemas import ResearchBrief
+from agentic_jobs.services.agents.schemas import CompanyIntelligence, ResearchBrief
 from agentic_jobs.services.llm.prompt_builder import ProfileBundle
 from agentic_jobs.services.llm.style_kit import CoverLetterKit
 from agentic_jobs.services.research.scraper import ScrapedPage
@@ -14,11 +14,11 @@ from agentic_jobs.services.vault.retriever import VaultMatch
 
 LOGGER = logging.getLogger(__name__)
 
-# Context budget (chars) for each input section — keeps total user message
-# under ~6000 chars which is comfortable for an 8K context window model.
+# Context budget (chars) for each input section.
 _MAX_JD_CHARS = 2000
-_MAX_COMPANY_CHARS = 2500
-_MAX_VAULT_CHARS = 800   # per excerpt
+_MAX_COMPANY_CHARS_PER_PAGE = 2000  # applied per scraped page before joining
+_MAX_COMPANY_PAGES = 4              # take at most this many pages
+_MAX_VAULT_CHARS = 800              # per excerpt
 _MAX_VAULT_EXCERPTS = 4
 _MAX_MEMORY_CHARS = 1000
 
@@ -63,8 +63,17 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
             '  "primary_experience_key": "one key from valid_experience_keys",\n'
             '  "matched_experience_keys": ["key1", "key2"],\n'
             '  "suggested_project": "project key from valid_project_keys",\n'
-            '  "memory_notes": ["any relevant memory notes to carry forward"]\n'
+            '  "memory_notes": ["any relevant memory notes to carry forward"],\n'
+            '  "company_intelligence": {\n'
+            '    "stage_signals": ["e.g. JD mentions Series B", "RSUs suggest late-stage or public"],\n'
+            '    "employee_scale": "e.g. 50-200 engineers, or empty string if unknown",\n'
+            '    "equity_type": "options | RSUs | unclear",\n'
+            '    "notable_facts": ["e.g. founded 2012", "notable customer: NASA"]\n'
+            '  }\n'
             "}\n"
+            "For company_intelligence: extract only what is explicitly stated in the JD or scraped pages. "
+            "Do not infer or guess — if a field has no evidence, use an empty string or empty list. "
+            "This section is for the candidate's private notes and is never shown to the employer.\n"
             "Do not wrap the JSON in code fences. Do not add commentary outside the JSON."
         )
 
@@ -77,12 +86,14 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
         kit: CoverLetterKit = kwargs["kit"]
         memory_notes: list[str] = kwargs.get("memory_notes", [])
 
-        # Compile company context from scraped pages
+        # Compile company context from scraped pages — truncate per page so every
+        # page contributes rather than the first page consuming the entire budget.
         company_text_parts = []
-        for page in scraped_pages:
+        for page in scraped_pages[:_MAX_COMPANY_PAGES]:
             if page.text:
-                company_text_parts.append(f"[{page.title or page.url}]\n{page.text}")
-        company_text = self._truncate("\n\n".join(company_text_parts), _MAX_COMPANY_CHARS)
+                excerpt = self._truncate(page.text, _MAX_COMPANY_CHARS_PER_PAGE)
+                company_text_parts.append(f"[{page.title or page.url}]\n{excerpt}")
+        company_text = "\n\n".join(company_text_parts)
 
         # Format vault excerpts
         vault_parts = []
@@ -128,6 +139,15 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
     def parse_response(self, raw: dict[str, Any]) -> ResearchBrief:
         matched_keys = list(raw.get("matched_experience_keys", []))[:2]
         primary_key = raw.get("primary_experience_key", "")
+
+        intel_raw = raw.get("company_intelligence") or {}
+        company_intelligence = CompanyIntelligence(
+            stage_signals=list(intel_raw.get("stage_signals", [])),
+            employee_scale=str(intel_raw.get("employee_scale", "") or ""),
+            equity_type=str(intel_raw.get("equity_type", "unclear") or "unclear"),
+            notable_facts=list(intel_raw.get("notable_facts", [])),
+        )
+
         return ResearchBrief(
             company_name=raw.get("company_name", ""),
             company_domain="",          # filled by coordinator
@@ -141,4 +161,5 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
             suggested_project=raw.get("suggested_project", ""),
             primary_experience_key=primary_key,
             matched_experience_keys=matched_keys,
+            company_intelligence=company_intelligence,
         )

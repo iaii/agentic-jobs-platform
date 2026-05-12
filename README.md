@@ -82,7 +82,7 @@ Sitemap → FrontierOrg list → JSON board endpoint → fallback HTML parse
 1. **Frontier seeding**: fetches `sitemap_index.xml`, extracts org slugs, upserts `FrontierOrg` rows (unique on `source` + `org_slug`).
 2. **Batch selection**: picks up to `MAX_ORGS_PER_RUN` orgs ordered by `(priority DESC, last_crawled_at ASC NULLS FIRST)` and not currently `muted_until`.
 3. **Job listing**: `GET /org_slug/embed/job_board/json` → falls back to HTML parsing (`<div class="opening">`) if the endpoint returns 4xx/5xx.
-4. **Detail fetch**: full HTML from the job board page; LD+JSON `application/ld+json` block used to extract the canonical company name.
+4. **Detail fetch**: full HTML from the job board page; LD+JSON `application/ld+json` block used to extract the canonical company name and `hiringOrganization.sameAs` / `url` (stored as `company_website` on the `Job` row).
 5. **Rate limiting**: `AsyncRateLimiter` leaky-bucket at `REQUESTS_PER_MINUTE`.
 6. **Robots.txt**: parsed and respected; any disallowed path is silently skipped.
 7. **Canonical ID**: `GH:<job_id>`.
@@ -104,6 +104,7 @@ Two adapters — **Simplify** (`SIMPLIFY:<sha1>`) and **New-Grad-2026** (`NEWGRA
 - **Recency filter**: drops postings older than `GITHUB_MAX_AGE_DAYS` (default 3); understands ISO-8601 strings, Unix epoch integers, and `YYYY-MM-DD` date strings.
 - **Company inference**: extracts company from the job URL path when the feed omits it (Greenhouse/Lever/Workday slug patterns).
 - **No frontier**: these adapters set `uses_frontier = False`; the orchestrator skips the DB frontier for them.
+- **Known limitation**: the Simplify feed provides the Greenhouse embed widget URL (`/embed/job_app?token=…`) as the application link, not the full job-board page. This means LD+JSON is unavailable for Simplify-sourced jobs and `company_website` will be `None`, skipping company research scraping for those entries.
 
 ---
 
@@ -380,6 +381,7 @@ donts: […]
 | `mock` | In-process stub | — |
 
 - **Retries**: 3 attempts, exponential backoff, triggered on HTTP 429 and 500–504.
+- **JSON repair retry**: if the model returns syntactically invalid JSON (e.g. unescaped quotes inside string values), the runner sends one correction turn asking the model to rewrite without embedded quotes before failing hard.
 - **Timeout**: `LLM_TIMEOUT_SECONDS` (default 120).
 - **User message cap**: `LLM_MAX_USER_MSG_CHARS` (default 12 000) — long JDs are truncated before the call.
 - **Response parsing**: strips markdown code fences if the model wraps JSON.
@@ -391,15 +393,22 @@ donts: […]
 
 ```
 Phase 1 — Data gathering (parallel)
-  CompanyScraper   → fetch careers page + about page
+  CompanyScraper   → fetch company homepage + about/engineering/careers pages
+                     resolved from job.company_website (extracted from LD+JSON at ingestion)
                      (CompanyCache TTL=7 days; domain → scraped_data JSONB)
+                     skipped with a warning if company_website is None (e.g. Simplify jobs)
   VaultRetriever   → semantic search Obsidian vault for company insights
                      (VaultEmbedding table; re-indexed on startup if stale)
   Memory loader    → AgentMemory records for this application
 
 Phase 2 — Research synthesis
-  ResearcherAgent  → LLM call: scraped pages + vault matches
-                   → ResearchBrief {insights, tone_suggestions}
+  ResearcherAgent  → LLM call: scraped pages (per-page 2 000-char budget, up to 4 pages)
+                              + vault matches + candidate profile
+                   → ResearchBrief {company_context, role_themes, jd_requirements,
+                                    matched_experiences, company_intelligence}
+  company_intelligence → written to Obsidian vault as a ## Company Intelligence section
+                         (stage signals, equity type, employee scale, notable facts)
+                         NOT passed to WriterAgent
 
 Phase 3 — Writing
   WriterAgent      → LLM call: brief + JD + profile + tone rules
@@ -561,7 +570,7 @@ All models are in `agentic_jobs/db/models.py`.
 
 | Table | PK | Notable columns |
 |-------|----|----------------|
-| `jobs` | UUID | `title`, `company`, `jd_text`, `requirements[]`, `canonical_job_id`, `content_hash`, `domain_root` |
+| `jobs` | UUID | `title`, `company`, `jd_text`, `requirements[]`, `canonical_job_id`, `content_hash`, `domain_root`, `company_website` |
 | `job_sources` | UUID | `job_id FK`, `source_type (enum)`, `raw_payload`, `canonical_hash`, `scraped_at` |
 | `applications` | UUID | `human_id`, `job_id FK`, `status (enum)`, `stage (enum)`, `score`, `slack_channel_id`, `slack_thread_ts` |
 | `artifacts` | UUID | `application_id FK`, `type (enum)`, `uri` |
@@ -590,7 +599,7 @@ All models are in `agentic_jobs/db/models.py`.
 |-------|-------|
 | `agent_memories` | `application_id FK (nullable)`, `memory_type` (SHORT_TERM/LONG_TERM), `category` (STYLE_PREFERENCE/COMPANY_INSIGHT/FEEDBACK_PATTERN), `expires_at` |
 | `vault_embeddings` | `(file_path, heading)` unique; `embedding (vector)`, `file_hash` — backing store for Obsidian vault semantic search |
-| `company_cache` | `domain (unique)`, `scraped_data JSONB`, `ttl_hours` (default 168 = 7 days) |
+| `company_cache` | `domain (unique)`, `company_name`, `scraped_data JSONB`, `ttl_hours` (default 168 = 7 days) |
 
 ---
 
@@ -715,6 +724,7 @@ Default window: 07:00–23:00 PT, 3-hour intervals → runs at 07:00, 10:00, 13:
 | `SCRAPER_RATE_LIMIT` | `5` | Concurrent company scrape requests |
 | `SCRAPER_TIMEOUT_SECONDS` | `10` | Per-request timeout for company scraper |
 | `COMPANY_CACHE_TTL_HOURS` | `168` | CompanyCache TTL (7 days) |
+| `COMPANY_RESEARCH_VAULT_SUBDIR` | `Agentic Copilot/Company Research` | Subdirectory within `VAULT_PATH` for auto-generated company research files |
 
 ---
 

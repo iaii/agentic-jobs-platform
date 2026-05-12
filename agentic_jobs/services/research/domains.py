@@ -35,6 +35,15 @@ _SAFE_PATH_PATTERNS: list[re.Pattern] = [re.compile(p, re.IGNORECASE) for p in [
 ]]
 
 # Known aggregator domains we explicitly allow (exact match on netloc).
+# These bypass the safe-path pattern check because their URL structure differs
+# from company sites (e.g. /overview on Glassdoor, /organization on Crunchbase).
+#
+# KNOWN LIMITATION: LinkedIn, Glassdoor, and Crunchbase deploy aggressive bot
+# detection that blocks plain HTTP scrapers. In practice, requests to these
+# domains return 403s or JS-rendered shells with no useful content. They are
+# listed here for correctness (we are not scraping them for malicious reasons)
+# but build_research_urls does not generate URLs for them. If JS-capable
+# scraping is added in the future, these are the first candidates to enable.
 _AGGREGATOR_DOMAINS: frozenset[str] = frozenset([
     "linkedin.com",
     "glassdoor.com",
@@ -75,7 +84,8 @@ def is_safe_url(url: str) -> bool:
     1. The URL uses https
     2. The domain is not blocked
     3. The path doesn't contain blocked segments (auth, forms, API endpoints, etc.)
-    4. The path matches at least one safe pattern, OR the domain is a known aggregator
+    4. The path is empty/root (homepage), OR matches a safe pattern, OR the domain
+       is a known aggregator
     """
     try:
         parsed = urlparse(url)
@@ -98,6 +108,10 @@ def is_safe_url(url: str) -> bool:
     if path_parts & _BLOCKED_PATH_SEGMENTS:
         return False
 
+    # Company homepage (empty path or "/") — always safe if domain is not blocked
+    if not path or path == "/":
+        return True
+
     # Known aggregators are always safe (they have their own ToS and structure)
     if any(netloc == agg or netloc.endswith("." + agg) for agg in _AGGREGATOR_DOMAINS):
         return True
@@ -110,7 +124,13 @@ def build_research_urls(company_name: str, company_domain: str) -> list[str]:
     """
     Build a conservative list of candidate URLs to research for a company.
     All URLs are constructed from known patterns — never from user input directly.
-    Returns at most 4 URLs to keep the scrape focused.
+
+    Ordering is intentional: homepage first (most reliably present), then
+    progressively more specific informational pages. The scraper fetches all
+    concurrently, but the researcher reads pages in list order — pages that
+    appear first get priority within the context budget.
+
+    Returns at most 5 URLs to keep the scrape focused.
     """
     urls: list[str] = []
     domain = company_domain.lower().strip().lstrip("www.")
@@ -118,27 +138,21 @@ def build_research_urls(company_name: str, company_domain: str) -> list[str]:
     if not domain:
         return []
 
-    # Company's own informational pages
     base = f"https://{domain}"
     candidates = [
+        base,                       # homepage — most reliably present
         f"{base}/about",
         f"{base}/company",
+        f"{base}/engineering",
+        f"{base}/technology",
         f"{base}/careers",
-        f"{base}/products",
     ]
     for url in candidates:
         if is_safe_url(url):
             urls.append(url)
 
-    # LinkedIn company page (constructed from name, not arbitrary input)
-    slug = _to_slug(company_name)
-    if slug:
-        li_url = f"https://www.linkedin.com/company/{slug}"
-        if is_safe_url(li_url):
-            urls.append(li_url)
-
-    # Cap at 4 total pages — we don't need more for a research brief
-    return urls[:4]
+    # Cap at 5 total pages
+    return urls[:5]
 
 
 def extract_domain(url: str) -> str:

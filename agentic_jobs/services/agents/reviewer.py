@@ -106,7 +106,8 @@ class HiringManagerAgent(BaseAgent[ReviewVerdict]):
             f"STEP 2 — Score using this rubric:\n{scoring_rubric}\n\n"
 
             f"STEP 3 — Write feedback:\n"
-            f"- QUOTE the exact phrase that fails, not just the section name\n"
+            f"- Identify the SPECIFIC phrase that fails — describe it in plain text, do NOT "
+            f"wrap it in quotation marks inside your JSON strings (unescaped quotes break JSON)\n"
             f"- Say what to write INSTEAD, not just what's wrong\n"
             f"- Flag ALL redundancies — if two sentences make the same point, say which to cut\n"
             f"- Flag ALL connection-narrating ('natural fit for', 'will enable me to contribute')\n"

@@ -7,9 +7,14 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from typing import TYPE_CHECKING
+
 from agentic_jobs.config import settings
 from agentic_jobs.db.models import CompanyCache
 from agentic_jobs.services.research.scraper import ScrapedPage
+
+if TYPE_CHECKING:
+    from agentic_jobs.services.agents.schemas import CompanyIntelligence
 
 
 LOGGER = logging.getLogger(__name__)
@@ -116,6 +121,77 @@ class CompanyResearchCache:
             LOGGER.debug("Vault: wrote company research to %s", target)
         except OSError as exc:
             LOGGER.warning("Could not write vault research file for %s: %s", company_name, exc)
+
+    # ------------------------------------------------------------------
+    # Intelligence notes
+    # ------------------------------------------------------------------
+
+    def write_intelligence_to_vault(
+        self,
+        company_name: str,
+        domain: str,
+        intelligence: "CompanyIntelligence",
+    ) -> None:
+        """
+        Append a Company Intelligence section to the existing vault markdown
+        for this company. Called after the researcher pipeline completes.
+        Only writes if vault_path is configured.
+        """
+        if not settings.vault_path:
+            return
+
+        vault_root = Path(settings.vault_path)
+        research_dir = vault_root / settings.company_research_vault_subdir
+        safe_name = _safe_filename(company_name)
+        target = research_dir / f"{safe_name}.md"
+
+        lines: list[str] = [
+            "",
+            "## Company Intelligence",
+            "> Auto-extracted from JD and scraped pages. For candidate reference only.",
+            "",
+        ]
+
+        if intelligence.stage_signals:
+            lines.append("**Stage signals:**")
+            for signal in intelligence.stage_signals:
+                lines.append(f"- {signal}")
+            lines.append("")
+
+        if intelligence.employee_scale:
+            lines.append(f"**Employee scale:** {intelligence.employee_scale}")
+            lines.append("")
+
+        if intelligence.equity_type and intelligence.equity_type != "unclear":
+            lines.append(f"**Equity type:** {intelligence.equity_type}")
+            lines.append("")
+
+        if intelligence.notable_facts:
+            lines.append("**Notable facts:**")
+            for fact in intelligence.notable_facts:
+                lines.append(f"- {fact}")
+            lines.append("")
+
+        try:
+            if target.exists():
+                existing = target.read_text(encoding="utf-8")
+                # Replace previous intelligence section if present
+                marker = "\n## Company Intelligence"
+                if marker in existing:
+                    existing = existing[:existing.index(marker)]
+                target.write_text(existing + "\n".join(lines), encoding="utf-8")
+            else:
+                # File doesn't exist yet — write a minimal stub with just the intel
+                stub = [
+                    f"# {company_name} — Company Research",
+                    "",
+                    f"> Domain: `{domain}`.",
+                    "",
+                ] + lines
+                target.write_text("\n".join(stub), encoding="utf-8")
+            LOGGER.debug("Vault: wrote company intelligence to %s", target)
+        except OSError as exc:
+            LOGGER.warning("Could not write intelligence to vault for %s: %s", company_name, exc)
 
     # ------------------------------------------------------------------
     # Helpers

@@ -9,6 +9,19 @@ if TYPE_CHECKING:
 
 
 @dataclass(slots=True)
+class CompanyIntelligence:
+    """
+    Company stage and context signals extracted from the JD and scraped pages.
+    Written to Obsidian notes for the candidate's reference — never passed to
+    the WriterAgent or included in the cover letter.
+    """
+    stage_signals: list[str]   # e.g. ["mentions Series B", "RSUs suggest late-stage"]
+    employee_scale: str        # e.g. "50-200 engineers", "10,000+ globally", ""
+    equity_type: str           # "options", "RSUs", "unclear"
+    notable_facts: list[str]   # founding year, notable customers, recent launches, etc.
+
+
+@dataclass(slots=True)
 class ResearchBrief:
     """Output of the ResearcherAgent. Passed to both WriterAgent and HiringManagerAgent."""
     company_name: str
@@ -25,6 +38,8 @@ class ResearchBrief:
     # Defaults let the old constructor call in parse_response work unchanged.
     primary_experience_key: str = ""
     matched_experience_keys: list[str] = field(default_factory=list)
+    # Company intelligence — written to Obsidian notes, not passed to WriterAgent.
+    company_intelligence: CompanyIntelligence | None = None
 
 
 @dataclass(slots=True)

@@ -165,10 +165,43 @@ async def call_llm(
         # raw_decode parses the first complete JSON object and ignores trailing text,
         # which handles models that continue writing after the closing brace.
         parsed, _ = json.JSONDecoder(strict=False).raw_decode(stripped)
-    except json.JSONDecodeError as exc:
-        raise LlmBackendError(f"Agent LLM response was not valid JSON: {stripped[:300]}") from exc
+        return AgentLlmResponse(content=parsed, raw_text=raw_text)
+    except json.JSONDecodeError:
+        pass
 
-    return AgentLlmResponse(content=parsed, raw_text=raw_text)
+    # JSON parse failed — retry once with an explicit correction message.
+    # Common cause: model wraps quoted text in string values using bare " characters
+    # (e.g. feedback: [""As a seasoned engineer..."]) which breaks the JSON parser.
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "call_llm: JSON parse failed on first attempt, retrying with correction prompt"
+    )
+    body["messages"].append({"role": "assistant", "content": raw_text})
+    body["messages"].append({
+        "role": "user",
+        "content": (
+            "Your previous response contained invalid JSON — likely due to unescaped "
+            "quotation marks inside string values. Rewrite your response as valid JSON. "
+            "Do not use quotation marks inside string values; paraphrase any quoted text instead."
+        ),
+    })
+    async with httpx.AsyncClient(timeout=timeout) as retry_client:
+        try:
+            retry_response = await retry_client.post(
+                settings.llm_endpoint_url,
+                json=body,
+                headers=headers,
+            )
+            retry_response.raise_for_status()
+            retry_data = retry_response.json()
+            raw_text = str(retry_data["choices"][0]["message"]["content"])
+            stripped = raw_text.strip()
+            if stripped.startswith("```"):
+                stripped = stripped.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            parsed, _ = json.JSONDecoder(strict=False).raw_decode(stripped)
+            return AgentLlmResponse(content=parsed, raw_text=raw_text)
+        except Exception as exc:
+            raise LlmBackendError(f"Agent LLM response was not valid JSON: {stripped[:300]}") from exc
 
 
 async def _call_qwen_backend(payload: Mapping[str, Any]) -> LlmResponse:

@@ -18,6 +18,13 @@ Safety measures baked in:
   9. No JavaScript execution — pure HTTP requests only (no Playwright/Selenium)
  10. Exception isolation — a failure on one URL never crashes the whole batch
 
+KNOWN LIMITATION — bot-detection:
+  Sites that deploy aggressive bot detection (LinkedIn, Glassdoor, Crunchbase)
+  will return 403s or client-side-rendered shells with no useful text content.
+  These cannot be scraped reliably without a JS-capable browser engine
+  (Playwright, Puppeteer, etc.). Until that is added, those domains are
+  allowlisted in domains.py but intentionally not generated as research targets.
+
 Prompt Improver integration point (future):
   After scraping, the raw text in ScrapedPage.text can optionally be passed
   through a prompt improvement step before the ResearcherAgent LLM call.

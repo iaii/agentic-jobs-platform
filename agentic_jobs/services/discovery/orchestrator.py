@@ -208,6 +208,8 @@ async def _ingest_job(
         hash=job_hash,
     )
 
+    company_website = job_detail.metadata.get("company_website") or None
+
     job = models.Job(
         title=job_ref.title,
         company_name=company_name,
@@ -219,6 +221,7 @@ async def _ingest_job(
         submission_mode=submission_mode,
         jd_text=jd_text,
         requirements=requirements,
+        company_website=company_website,
         job_id_canonical=canonical_id,
         scraped_at=datetime.now(timezone.utc),
         hash=job_hash,
