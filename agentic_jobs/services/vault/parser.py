@@ -39,7 +39,7 @@ class VaultParser:
     def _parse_file(self, path: Path, rel_path: str) -> list[VaultSection]:
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             return []
 
         if not text.strip():
