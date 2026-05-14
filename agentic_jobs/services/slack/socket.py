@@ -26,11 +26,13 @@ _socket_client: SocketModeClient | None = None
 
 
 async def _process_interaction(payload: dict[str, Any]) -> None:
-    session = SessionLocal()
-    slack_client = SlackClient(settings.slack_bot_token)
+    session = None
+    slack_client = None
     response_url = payload.get("response_url")
 
     try:
+        session = SessionLocal()
+        slack_client = SlackClient(settings.slack_bot_token)
         result = await handle_interactive_request(payload, session, slack_client)
         if response_url and isinstance(result, dict) and result.get("text"):
             try:
@@ -65,18 +67,24 @@ async def _process_interaction(payload: dict[str, Any]) -> None:
     except Exception:  # noqa: BLE001
         LOGGER.exception("Failed to process Slack interaction payload.")
     finally:
-        await slack_client.aclose()
-        session.close()
+        if slack_client is not None:
+            await slack_client.aclose()
+        if session is not None:
+            session.close()
 
 
 async def _process_event(payload: dict[str, Any]) -> None:
-    session = SessionLocal()
-    slack_client = SlackClient(settings.slack_bot_token)
+    session = None
+    slack_client = None
     try:
+        session = SessionLocal()
+        slack_client = SlackClient(settings.slack_bot_token)
         await handle_slack_event(payload, session, slack_client)
     finally:
-        await slack_client.aclose()
-        session.close()
+        if slack_client is not None:
+            await slack_client.aclose()
+        if session is not None:
+            session.close()
 
 
 async def _handle_socket_request(client: SocketModeClient, req: SocketModeRequest) -> None:
