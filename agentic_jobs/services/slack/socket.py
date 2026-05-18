@@ -28,7 +28,11 @@ _socket_client: SocketModeClient | None = None
 async def _process_interaction(payload: dict[str, Any]) -> None:
     session = None
     slack_client = None
-    response_url = payload.get("response_url")
+    raw_response_url = payload.get("response_url")
+    if raw_response_url and not str(raw_response_url).startswith("https://hooks.slack.com/"):
+        LOGGER.warning("Ignoring response_url with unexpected origin: %s", raw_response_url)
+        raw_response_url = None
+    response_url = raw_response_url
 
     try:
         session = SessionLocal()
