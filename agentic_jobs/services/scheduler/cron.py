@@ -260,7 +260,7 @@ async def _vault_refresh_job() -> None:
 async def scheduler_job() -> None:
     global _last_run_at_utc
     now_pt = datetime.now(tz=PT_ZONE)
-    if not (_schedule_hours()[0] <= now_pt.hour <= settings.scheduler_window_end_hour_pt):
+    if not (settings.scheduler_window_start_hour_pt <= now_pt.hour <= settings.scheduler_window_end_hour_pt):
         LOGGER.info("Current time outside scheduler window: %s", now_pt.isoformat())
         return
 
