@@ -101,7 +101,11 @@ async def call_llm(
         )
         user_message = user_message[:max_chars]
 
-    api_key = settings.llm_api_key or "lm-studio"
+    api_key = settings.llm_api_key or settings.ollama_api_key
+    if not api_key:
+        raise LlmBackendError(
+            "LLM_API_KEY is not configured. For local backends (LM Studio, Ollama) set it to any non-empty string."
+        )
     body: dict[str, Any] = {
         "model": settings.llm_model_name,
         "messages": [
@@ -280,8 +284,11 @@ async def _call_openai_style_backend(payload: Mapping[str, Any]) -> LlmResponse:
     if not settings.llm_endpoint_url:
         raise LlmBackendError("LLM_ENDPOINT_URL is not configured.")
 
-    # LM Studio does not require an API key; use a placeholder if none is configured.
-    api_key = settings.llm_api_key or settings.ollama_api_key or "lm-studio"
+    api_key = settings.llm_api_key or settings.ollama_api_key
+    if not api_key:
+        raise LlmBackendError(
+            "LLM_API_KEY is not configured. For local backends (LM Studio, Ollama) set it to any non-empty string."
+        )
 
     system_prompt = (
         "You are a cover letter generator. Respond ONLY with JSON matching the schema "

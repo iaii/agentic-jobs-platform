@@ -101,7 +101,11 @@ class VaultEmbedder:
         truncated = text[:_MAX_EMBED_CHARS]
         endpoint = settings.embedding_endpoint_url
         model = settings.embedding_model_name
-        api_key = settings.llm_api_key or "lm-studio"
+        api_key = settings.llm_api_key
+        if not api_key:
+            raise RuntimeError(
+                "LLM_API_KEY is not configured. For local backends (LM Studio, Ollama) set it to any non-empty string."
+            )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -165,7 +169,9 @@ class VaultEmbedder:
     async def health_check() -> bool:
         """Returns True if the embedding endpoint is reachable."""
         endpoint = settings.embedding_endpoint_url
-        api_key = settings.llm_api_key or "lm-studio"
+        api_key = settings.llm_api_key
+        if not api_key:
+            return False
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.post(
