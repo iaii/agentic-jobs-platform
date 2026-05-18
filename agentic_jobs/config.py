@@ -1,7 +1,8 @@
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -102,6 +103,16 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
+
+    @model_validator(mode="after")
+    def _validate_config_paths(self) -> "Settings":
+        for env_var, path_str in (
+            ("JOB_FILTER_CONFIG_PATH", self.job_filter_config_path),
+            ("UNIVERSAL_SITES_CONFIG_PATH", self.universal_sites_config_path),
+        ):
+            if not Path(path_str).exists():
+                raise ValueError(f"{env_var}={path_str!r} does not exist")
+        return self
 
     @property
     def sqlalchemy_database_uri(self) -> str:
