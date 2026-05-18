@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
@@ -22,7 +23,7 @@ class ParsedJob:
     metadata: dict[str, Any]
 
 
-class BaseUniversalParser:
+class BaseUniversalParser(ABC):
     """Base helper that concrete ATS parsers extend."""
 
     parser_name = "base"
@@ -37,11 +38,11 @@ class BaseUniversalParser:
         self._client = client
         self._limiter = rate_limiter
 
-    async def list_jobs(self) -> Sequence[ParsedJob]:
-        raise NotImplementedError
+    @abstractmethod
+    async def list_jobs(self) -> Sequence[ParsedJob]: ...
 
-    async def fetch_job_detail(self, job_ref: JobRef) -> JobDetail:
-        raise NotImplementedError
+    @abstractmethod
+    async def fetch_job_detail(self, job_ref: JobRef) -> JobDetail: ...
 
     def canonical_id(self, job_ref: JobRef) -> str:
         return job_ref.job_id
