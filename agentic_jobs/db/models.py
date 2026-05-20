@@ -385,6 +385,7 @@ class ProfileFiles(Base):
         UUID(as_uuid=True), ForeignKey("profile_identities.id"), nullable=False, unique=True
     )
     resume_variants: Mapped[List[dict]] = mapped_column(JSONB, nullable=False, default=list)
+    resume_text_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
 
     identity: Mapped[ProfileIdentity] = relationship(back_populates="files")
 

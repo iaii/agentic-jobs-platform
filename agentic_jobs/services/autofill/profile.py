@@ -159,6 +159,7 @@ class ProfileLoader:
         resume_variants: Dict[str, Path] = {}
         default_tag: str | None = None
         cover_letter_path: Path | None = None
+        resume_text_path: Path | None = None
         if file_entry:
             for variant in file_entry.resume_variants or []:
                 tag = variant.get("tag") or variant.get("name")
@@ -166,11 +167,14 @@ class ProfileLoader:
                 if tag and path:
                     resume_variants[tag] = Path(path)
             default_tag = file_entry.resume_variants[0].get("tag") if file_entry.resume_variants else None
+            if file_entry.resume_text_path:
+                resume_text_path = Path(file_entry.resume_text_path)
         return ProfileFilesSnapshot(
             resume_variants=resume_variants,
             default_resume_tag=default_tag,
             cover_letter_pdf_enabled=True,
             cover_letter_pdf_path=cover_letter_path,
+            resume_text_path=resume_text_path,
         )
 
     @staticmethod
