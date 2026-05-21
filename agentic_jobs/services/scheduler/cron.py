@@ -227,7 +227,7 @@ async def _vault_refresh_job() -> None:
     now = datetime.now(tz=timezone.utc)
 
     if _last_vault_refresh_utc is not None:
-        if (now - _last_vault_refresh_utc) < timedelta(hours=12):
+        if (now - _last_vault_refresh_utc) < timedelta(hours=settings.vault_refresh_interval_hours):
             return
 
     if not settings.vault_path:

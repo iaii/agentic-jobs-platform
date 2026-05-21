@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     embedding_endpoint_url: str = Field("http://localhost:1234/v1/embeddings", alias="EMBEDDING_ENDPOINT_URL")
     vault_link_depth: int = Field(1, alias="VAULT_LINK_DEPTH")
     vault_top_k: int = Field(5, alias="VAULT_TOP_K")
+    vault_refresh_interval_hours: int = Field(12, alias="VAULT_REFRESH_INTERVAL_HOURS")
 
     # -------------------------
     # Multi-Agent Pipeline
