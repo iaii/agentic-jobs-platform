@@ -26,6 +26,9 @@ from agentic_jobs.services.slack.workflows import (
 
 LOGGER = logging.getLogger(__name__)
 PT_ZONE = ZoneInfo("America/Los_Angeles")
+# Tolerance subtracted from interval checks so a run that fires slightly early
+# isn't skipped on the next tick.
+_SCHEDULE_GUARD = timedelta(minutes=30)
 _scheduler_task: asyncio.Task | None = None
 _last_run_at_utc: datetime | None = None
 _last_memory_assess_utc: datetime | None = None
@@ -200,7 +203,7 @@ async def _memory_assess_job() -> None:
     now = datetime.now(tz=timezone.utc)
 
     if _last_memory_assess_utc is not None:
-        if (now - _last_memory_assess_utc) < timedelta(days=interval_days - 0.1):
+        if (now - _last_memory_assess_utc) < timedelta(days=interval_days) - _SCHEDULE_GUARD:
             return
 
     LOGGER.info("Running memory auto-assess job")
@@ -287,7 +290,7 @@ async def _scheduler_loop() -> None:
         # Ensure interval gating (avoid duplicate runs if woke up early)
         if _last_run_at_utc is not None:
             interval_hours = max(1, int(getattr(settings, "discovery_interval_hours", 3)))
-            if (datetime.now(tz=timezone.utc) - _last_run_at_utc) < timedelta(hours=interval_hours - 0.01):
+            if (datetime.now(tz=timezone.utc) - _last_run_at_utc) < timedelta(hours=interval_hours) - _SCHEDULE_GUARD:
                 continue
         await scheduler_job()
         # These are internally gated — safe to call every discovery cycle
