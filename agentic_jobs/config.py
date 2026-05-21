@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     llm_api_key: str | None = Field(None, alias="LLM_API_KEY")
     ollama_api_key: str | None = Field(None, alias="OLLAMA_API_KEY")
     digest_batch_size: int = Field(20, alias="DIGEST_BATCH_SIZE")
+    tracker_rows_per_page: int = Field(25, alias="TRACKER_ROWS_PER_PAGE")
+    tracker_max_pages: int = Field(4, alias="TRACKER_MAX_PAGES")
     scheduler_window_start_hour_pt: int = Field(7, alias="SCHEDULER_WINDOW_START_HOUR_PT")
     scheduler_window_end_hour_pt: int = Field(23, alias="SCHEDULER_WINDOW_END_HOUR_PT")
     job_filter_config_path: str = Field("config/job_filters.yaml", alias="JOB_FILTER_CONFIG_PATH")

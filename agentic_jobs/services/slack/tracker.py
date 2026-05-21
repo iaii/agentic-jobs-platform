@@ -23,9 +23,6 @@ from agentic_jobs.services.slack.client import SlackClient, SlackError
 
 LOGGER = logging.getLogger(__name__)
 
-ROWS_PER_PAGE = 25
-MAX_TRACKER_PAGES = 4
-MAX_TRACKER_ROWS = ROWS_PER_PAGE * MAX_TRACKER_PAGES
 TRACKER_VIEW_TYPE = "applications_master"
 STAGE_SUMMARY_ORDER: list[ApplicationStage] = [
     ApplicationStage.INTERESTED,
@@ -142,7 +139,7 @@ class MasterTracker:
             .options(joinedload(models.Application.job))
             .where(models.Application.stage.notin_(archived_values))
             .order_by(models.Application.updated_at.desc())
-            .limit(MAX_TRACKER_ROWS)
+            .limit(settings.tracker_rows_per_page * settings.tracker_max_pages)
         )
         apps = self.session.execute(stmt).scalars().all()
         rows: list[TrackerRow] = []
@@ -320,9 +317,10 @@ class MasterTracker:
         }
 
     def _chunk_rows(self, rows: list[TrackerRow]) -> list[list[TrackerRow]]:
+        page_size = settings.tracker_rows_per_page
         chunks: list[list[TrackerRow]] = []
-        for i in range(0, len(rows), ROWS_PER_PAGE):
-            chunks.append(rows[i : i + ROWS_PER_PAGE])
+        for i in range(0, len(rows), page_size):
+            chunks.append(rows[i : i + page_size])
         return chunks
 
     def _page_from_view_type(self, view_type: str) -> int | None:
