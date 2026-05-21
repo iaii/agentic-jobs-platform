@@ -23,3 +23,33 @@ filters:
     - staff
     - sr
     - senior
+
+scoring:
+  title_keywords:
+    - software engineer
+    - backend
+    - back-end
+    - full stack
+    - full-stack
+    - swe
+  new_grad_keywords:
+    - new grad
+    - entry level
+    - university grad
+    - graduate
+  geo_keywords:
+    - new york
+    - nyc
+    - seattle
+    - san francisco
+    - san jose
+    - sunnyvale
+    - mountain view
+    - palo alto
+    - redwood city
+    - oakland
+    - berkeley
+    - los angeles
+    - "la "
+    - irvine
+    - orange county

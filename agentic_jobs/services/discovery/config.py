@@ -37,12 +37,49 @@ DEFAULT_ADAPTERS = {
     "universal": True,
 }
 
+DEFAULT_SCORE_TITLE = [
+    "software engineer",
+    "backend",
+    "back-end",
+    "full stack",
+    "full-stack",
+    "swe",
+]
+
+DEFAULT_SCORE_NEW_GRAD = [
+    "new grad",
+    "entry level",
+    "university grad",
+    "graduate",
+]
+
+DEFAULT_SCORE_GEO = [
+    "new york",
+    "nyc",
+    "seattle",
+    "san francisco",
+    "san jose",
+    "sunnyvale",
+    "mountain view",
+    "palo alto",
+    "redwood city",
+    "oakland",
+    "berkeley",
+    "los angeles",
+    "la ",
+    "irvine",
+    "orange county",
+]
+
 
 @dataclass(slots=True)
 class JobFilterConfig:
     include_keywords: list[str]
     exclude_keywords: list[str]
     adapters: dict[str, bool]
+    score_title_keywords: list[str]
+    score_new_grad_keywords: list[str]
+    score_geo_keywords: list[str]
 
 
 def _normalize_list(values: Any, fallback: list[str]) -> list[str]:
@@ -85,4 +122,15 @@ def get_job_filter_config(path: str | None) -> JobFilterConfig:
     include_keywords = _normalize_list(filters_raw.get("include_keywords"), DEFAULT_INCLUDE)
     exclude_keywords = _normalize_list(filters_raw.get("exclude_keywords"), DEFAULT_EXCLUDE)
     adapters = _normalize_adapters(raw.get("adapters")) if isinstance(raw, dict) else dict(DEFAULT_ADAPTERS)
-    return JobFilterConfig(include_keywords=include_keywords, exclude_keywords=exclude_keywords, adapters=adapters)
+    scoring_raw = raw.get("scoring", {}) if isinstance(raw, dict) else {}
+    score_title_keywords = _normalize_list(scoring_raw.get("title_keywords"), DEFAULT_SCORE_TITLE)
+    score_new_grad_keywords = _normalize_list(scoring_raw.get("new_grad_keywords"), DEFAULT_SCORE_NEW_GRAD)
+    score_geo_keywords = _normalize_list(scoring_raw.get("geo_keywords"), DEFAULT_SCORE_GEO)
+    return JobFilterConfig(
+        include_keywords=include_keywords,
+        exclude_keywords=exclude_keywords,
+        adapters=adapters,
+        score_title_keywords=score_title_keywords,
+        score_new_grad_keywords=score_new_grad_keywords,
+        score_geo_keywords=score_geo_keywords,
+    )
