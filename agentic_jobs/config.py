@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     # Memory
     # -------------------------
     memory_assessment_interval_days: int = Field(3, alias="MEMORY_ASSESSMENT_INTERVAL_DAYS")
+    job_cutoff_days: int = Field(30, alias="JOB_CUTOFF_DAYS")
 
     # -------------------------
     # Web Scraping

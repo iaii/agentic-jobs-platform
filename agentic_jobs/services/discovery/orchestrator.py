@@ -58,7 +58,7 @@ async def _run_for_adapter(
 ) -> tuple[DiscoverySummary, set[str]]:
     summary = DiscoverySummary()
     domain_cache: Dict[str, TrustResult] = {}
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.job_cutoff_days)
 
     if getattr(adapter, "uses_frontier", True):
         await _seed_frontier(session, adapter)
