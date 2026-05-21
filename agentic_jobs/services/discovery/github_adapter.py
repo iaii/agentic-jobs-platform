@@ -135,7 +135,7 @@ class GithubPositionsAdapter(SourceAdapter):
         self._timeout = httpx.Timeout(settings.request_timeout_seconds)
         self._client = client or httpx.AsyncClient(timeout=self._timeout)
         self._owns_client = client is None
-        calls_per_minute = max(settings.requests_per_minute // 2, 10)
+        calls_per_minute = max(settings.requests_per_minute // 2, 1)
         self._limiter = rate_limiter or AsyncRateLimiter(calls_per_minute, 60.0)
         self._max_age_delta = settings.github_max_age_delta
         if not self._data_urls:
