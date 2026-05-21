@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     vault_link_depth: int = Field(1, alias="VAULT_LINK_DEPTH")
     vault_top_k: int = Field(5, alias="VAULT_TOP_K")
     vault_refresh_interval_hours: int = Field(12, alias="VAULT_REFRESH_INTERVAL_HOURS")
+    embedding_timeout_seconds: int = Field(30, alias="EMBEDDING_TIMEOUT_SECONDS")
 
     # -------------------------
     # Multi-Agent Pipeline

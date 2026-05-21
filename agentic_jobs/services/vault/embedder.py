@@ -107,7 +107,7 @@ class VaultEmbedder:
                 "LLM_API_KEY is not configured. For local backends (LM Studio, Ollama) set it to any non-empty string."
             )
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=settings.embedding_timeout_seconds) as client:
             try:
                 response = await client.post(
                     endpoint,
@@ -173,7 +173,7 @@ class VaultEmbedder:
         if not api_key:
             return False
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
                 resp = await client.post(
                     endpoint,
                     json={"model": settings.embedding_model_name, "input": "ping"},
