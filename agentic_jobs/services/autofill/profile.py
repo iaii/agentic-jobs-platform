@@ -83,9 +83,18 @@ class ProfileLoader:
         return profile
 
     def _load_from_db(self, session: Session) -> AutofillProfile | None:
-        identity = session.execute(select(models.ProfileIdentity).limit(1)).scalar_one_or_none()
-        if identity is None:
+        rows = session.execute(
+            select(models.ProfileIdentity).order_by(models.ProfileIdentity.id)
+        ).scalars().all()
+        if not rows:
             return None
+        if len(rows) > 1:
+            LOGGER.warning(
+                "Multiple ProfileIdentity rows found (%d); using the first by id. "
+                "This system is single-user — remove extra rows to suppress this warning.",
+                len(rows),
+            )
+        identity = rows[0]
         address = ProfileAddress()
         snapshot = IdentitySnapshot(
             full_name=identity.name,
