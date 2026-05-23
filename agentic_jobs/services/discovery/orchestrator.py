@@ -58,7 +58,6 @@ async def _run_for_adapter(
 ) -> tuple[DiscoverySummary, set[str]]:
     summary = DiscoverySummary()
     domain_cache: Dict[str, TrustResult] = {}
-    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.job_cutoff_days)
 
     if getattr(adapter, "uses_frontier", True):
         await _seed_frontier(session, adapter)
@@ -73,7 +72,7 @@ async def _run_for_adapter(
             summary.jobs_seen += len(job_refs)
 
             for job_ref in job_refs:
-                inserted = await _ingest_job(session, adapter, job_ref, cutoff, domain_cache, filter_config)
+                inserted = await _ingest_job(session, adapter, job_ref, domain_cache, filter_config)
                 if inserted:
                     summary.jobs_inserted += 1
 
@@ -95,7 +94,7 @@ async def _run_for_adapter(
             summary.orgs_crawled += 1
             summary.jobs_seen += len(job_refs)
             for job_ref in job_refs:
-                inserted = await _ingest_job(session, adapter, job_ref, cutoff, domain_cache, filter_config)
+                inserted = await _ingest_job(session, adapter, job_ref, domain_cache, filter_config)
                 if inserted:
                     summary.jobs_inserted += 1
 
@@ -150,14 +149,13 @@ async def _ingest_job(
     session: Session,
     adapter: SourceAdapter,
     job_ref: JobRef,
-    cutoff: datetime,
     domain_cache: Dict[str, TrustResult],
     filter_config: JobFilterConfig,
 ) -> bool:
     if not _is_relevant_role(job_ref.title, filter_config):
         return False
     canonical_id = adapter.canonical_id(job_ref)
-    if _job_seen_recently(session, canonical_id, cutoff):
+    if _job_exists(session, canonical_id):
         return False
 
     job_detail = await adapter.fetch_job_detail(job_ref)
@@ -174,7 +172,7 @@ async def _ingest_job(
     )
     job_hash = compute_hash(job_ref.title, company_name, hash_payload)
 
-    if _hash_seen_recently(session, job_hash, cutoff):
+    if _hash_exists(session, job_hash):
         return False
 
     domain_root = urlparse(job_ref.detail_url).netloc.lower()
@@ -242,21 +240,13 @@ async def _ingest_job(
     return True
 
 
-def _job_seen_recently(session: Session, canonical_id: str, cutoff: datetime) -> bool:
-    stmt = (
-        select(models.Job.id)
-        .where(models.Job.job_id_canonical == canonical_id)
-        .where(models.Job.scraped_at >= cutoff)
-    )
+def _job_exists(session: Session, canonical_id: str) -> bool:
+    stmt = select(models.Job.id).where(models.Job.job_id_canonical == canonical_id)
     return session.execute(stmt).scalar() is not None
 
 
-def _hash_seen_recently(session: Session, job_hash: str, cutoff: datetime) -> bool:
-    stmt = (
-        select(models.Job.id)
-        .where(models.Job.hash == job_hash)
-        .where(models.Job.scraped_at >= cutoff)
-    )
+def _hash_exists(session: Session, job_hash: str) -> bool:
+    stmt = select(models.Job.id).where(models.Job.hash == job_hash)
     return session.execute(stmt).scalar() is not None
 
 
