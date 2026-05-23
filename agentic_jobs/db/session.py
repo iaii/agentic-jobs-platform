@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from agentic_jobs.config import settings
 
@@ -11,13 +10,11 @@ engine = create_engine(
     echo=settings.debug,
 )
 
-SessionLocal = scoped_session(
-    sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=engine,
-        future=True,
-    )
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    future=True,
 )
 
 Base = declarative_base()
