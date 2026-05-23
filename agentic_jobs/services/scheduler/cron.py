@@ -53,7 +53,7 @@ def _next_run_time(now_pt: datetime) -> datetime:
     while True:
         if start_hour <= candidate_hour <= end_hour and ((candidate_hour - start_hour) % interval == 0):
             candidate = now_pt.replace(hour=candidate_hour, minute=0, second=0, microsecond=0)
-            if candidate >= now_pt - timedelta(minutes=1):
+            if candidate >= now_pt - _SCHEDULE_GUARD:
                 return candidate
         candidate_hour += 1
         if candidate_hour > end_hour:
