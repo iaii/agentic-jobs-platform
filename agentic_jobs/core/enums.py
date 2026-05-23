@@ -45,7 +45,7 @@ class ApplicationStage(StrEnum):
 
 class ArtifactType(StrEnum):
     JD_SNAPSHOT = "jd_snapshot"
-    COVER_LETTER_VERSION = "cover_letter_vN"
+    COVER_LETTER_VERSION = "cover_letter_version"
     AUTOFILL_SUMMARY = "autofill_summary"
     CONFIRMATION = "confirmation"
     COVER_LETTER_FINAL_PDF = "cl_final_pdf"
