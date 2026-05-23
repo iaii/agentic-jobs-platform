@@ -161,9 +161,9 @@ class GithubPositionsAdapter(SourceAdapter):
         now = datetime.now(timezone.utc)
         for item in items:
             posted_at = self._extract_posted_at(item)
-            if posted_at is None:
-                continue
-            if self._max_age_delta and posted_at < now - self._max_age_delta:
+            # Only apply the age filter when a date is available; undated listings
+            # are included rather than silently dropped.
+            if posted_at is not None and self._max_age_delta and posted_at < now - self._max_age_delta:
                 continue
 
             title = _first_non_empty(
@@ -207,7 +207,7 @@ class GithubPositionsAdapter(SourceAdapter):
                     title=title,
                     location=location,
                     detail_url=url,
-                    metadata={"item": item, "company": company, "posted_at": posted_at.isoformat()},
+                    metadata={"item": item, "company": company, "posted_at": posted_at.isoformat() if posted_at else None},
                 )
             )
 
