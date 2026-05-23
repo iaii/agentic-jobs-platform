@@ -25,7 +25,7 @@ from agentic_jobs.services.slack.workflows import (
 )
 
 LOGGER = logging.getLogger(__name__)
-PT_ZONE = ZoneInfo("America/Los_Angeles")
+PT_ZONE = ZoneInfo(settings.scheduler_timezone)
 # Tolerance subtracted from interval checks so a run that fires slightly early
 # isn't skipped on the next tick.
 _SCHEDULE_GUARD = timedelta(minutes=30)

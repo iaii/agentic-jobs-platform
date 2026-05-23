@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     tracker_max_pages: int = Field(4, alias="TRACKER_MAX_PAGES")
     scheduler_window_start_hour_pt: int = Field(7, alias="SCHEDULER_WINDOW_START_HOUR_PT")
     scheduler_window_end_hour_pt: int = Field(23, alias="SCHEDULER_WINDOW_END_HOUR_PT")
+    scheduler_timezone: str = Field("America/Los_Angeles", alias="SCHEDULER_TIMEZONE")
     job_filter_config_path: str = Field("config/job_filters.yaml", alias="JOB_FILTER_CONFIG_PATH")
     universal_sites_config_path: str = Field("config/universal_sites.yaml", alias="UNIVERSAL_SITES_CONFIG_PATH")
     universal_max_age_days: int = Field(7, alias="UNIVERSAL_MAX_AGE_DAYS")
@@ -117,6 +118,15 @@ class Settings(BaseSettings):
         ):
             if not Path(path_str).exists():
                 raise ValueError(f"{env_var}={path_str!r} does not exist")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_scheduler_timezone(self) -> "Settings":
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try:
+            ZoneInfo(self.scheduler_timezone)
+        except (ZoneInfoNotFoundError, KeyError):
+            raise ValueError(f"SCHEDULER_TIMEZONE={self.scheduler_timezone!r} is not a valid IANA timezone")
         return self
 
     @property
