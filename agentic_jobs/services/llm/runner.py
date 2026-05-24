@@ -137,7 +137,7 @@ async def call_llm(
                 last_error = exc
                 retryable = exc.response.status_code in {429, 500, 502, 503, 504}
                 if retryable and attempt < max_attempts - 1:
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(min(60, 2 ** attempt))
                     continue
                 raise LlmBackendError(
                     f"LLM agent call HTTP error {exc.response.status_code}: {exc.response.text}"
@@ -145,7 +145,7 @@ async def call_llm(
             except httpx.RequestError as exc:
                 last_error = exc
                 if attempt < max_attempts - 1:
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(min(60, 2 ** attempt))
                     continue
                 raise LlmBackendError(f"LLM agent call request error: {exc}") from exc
         else:
@@ -329,7 +329,7 @@ async def _call_openai_style_backend(payload: Mapping[str, Any]) -> LlmResponse:
                 last_error = exc
                 retryable = exc.response.status_code in {429, 500, 502, 503, 504}
                 if retryable and attempt < max_attempts - 1:
-                    wait = 2 ** attempt  # exponential back-off: 1s, 2s
+                    wait = min(60, 2 ** attempt)
                     await asyncio.sleep(wait)
                     continue
                 raise LlmBackendError(
@@ -338,7 +338,7 @@ async def _call_openai_style_backend(payload: Mapping[str, Any]) -> LlmResponse:
             except httpx.RequestError as exc:
                 last_error = exc
                 if attempt < max_attempts - 1:
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(min(60, 2 ** attempt))
                     continue
                 raise LlmBackendError(f"{backend} backend request error: {exc}") from exc
         else:

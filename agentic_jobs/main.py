@@ -41,7 +41,6 @@ def create_app() -> FastAPI:
         await start_socket_mode()
         await _refresh_vault_embeddings()
 
-    @app.on_event("startup")
     async def _refresh_vault_embeddings() -> None:
         """
         On startup: check if vault embeddings are stale (file hashes changed)
