@@ -48,6 +48,13 @@ class SlackActionError(RuntimeError):
     """Raised for malformed or unsupported Slack actions."""
 
 
+def _extract_first_action(payload: dict[str, Any]) -> dict[str, Any]:
+    actions = payload.get("actions") or []
+    if not actions:
+        raise SlackActionError("No actions provided in payload.")
+    return actions[0]
+
+
 def _extract_user_name(payload: dict[str, Any]) -> str:
     user = payload.get("user") or {}
     return user.get("username") or user.get("name") or user.get("id") or "unknown"
@@ -451,7 +458,7 @@ async def handle_save_to_tracker(
     session: Session,
     slack_client: SlackClient,
 ) -> dict[str, Any]:
-    action = (payload.get("actions") or [])[0]
+    action = _extract_first_action(payload)
     job_uuid, canonical_id = _parse_action_job_context(action.get("value"))
     job = None
     if job_uuid:
@@ -569,7 +576,7 @@ async def handle_application_manage_action(
     if not trigger_id:
         raise SlackActionError("Missing trigger for tracker modal.")
 
-    action = (payload.get("actions") or [])[0]
+    action = _extract_first_action(payload)
     application_id = _parse_application_action_value(action.get("value"))
     application = session.get(models.Application, application_id)
     if not application:
@@ -591,7 +598,7 @@ async def handle_needs_review_approve(
     session: Session,
     slack_client: SlackClient,
 ) -> dict[str, Any]:
-    action = (payload.get("actions") or [])[0]
+    action = _extract_first_action(payload)
     domain_root = action.get("value")
     if not domain_root:
         raise SlackActionError("Missing domain root for needs-review approval.")
@@ -651,7 +658,7 @@ async def handle_needs_review_reject(
     slack_client: SlackClient,
     mute_days: int = 7,
 ) -> dict[str, Any]:
-    action = (payload.get("actions") or [])[0]
+    action = _extract_first_action(payload)
     domain_root = action.get("value")
     if not domain_root:
         raise SlackActionError("Missing domain root for needs-review rejection.")
@@ -703,7 +710,7 @@ async def handle_drafts_generate_action(
     slack_client: SlackClient,
 ) -> dict[str, Any]:
     """Quick Draft — single-pass, current DraftGenerator behavior."""
-    action = (payload.get("actions") or [])[0]
+    action = _extract_first_action(payload)
     application_id = _parse_application_action_value(action.get("value"))
     generator = DraftGenerator(session, slack_client)
     author = _extract_user_name(payload)
@@ -721,7 +728,7 @@ async def handle_drafts_pipeline_action(
     slack_client: SlackClient,
 ) -> dict[str, Any]:
     """Generate CL — full multi-agent pipeline (Researcher → Writer → HM review loop)."""
-    action = (payload.get("actions") or [])[0]
+    action = _extract_first_action(payload)
     application_id = _parse_application_action_value(action.get("value"))
     author = _extract_user_name(payload)
     coordinator = PipelineCoordinator(session, slack_client)
@@ -744,7 +751,7 @@ async def handle_drafts_finalize_action(
     session: Session,
     slack_client: SlackClient,
 ) -> dict[str, Any]:
-    action = (payload.get("actions") or [])[0]
+    action = _extract_first_action(payload)
     application_id = _parse_application_action_value(action.get("value"))
     generator = DraftGenerator(session, slack_client)
     author = _extract_user_name(payload)
@@ -780,7 +787,7 @@ async def _handle_autofill_action(
 ) -> dict[str, Any]:
     if not settings.autofill_enabled:
         raise SlackActionError("Autofill is disabled.")
-    action = (payload.get("actions") or [])[0]
+    action = _extract_first_action(payload)
     application_id = _parse_application_action_value(action.get("value"))
     application = session.get(models.Application, application_id)
     if not application:
