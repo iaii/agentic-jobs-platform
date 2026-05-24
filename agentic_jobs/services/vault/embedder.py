@@ -15,10 +15,6 @@ from agentic_jobs.services.vault.parser import VaultSection
 
 LOGGER = logging.getLogger(__name__)
 
-# Sections longer than this get truncated before embedding to stay within
-# the embedding model's token window (~8192 tokens for nomic-embed-text).
-_MAX_EMBED_CHARS = 6000
-
 
 class VaultEmbedError(RuntimeError):
     """Raised when the embedding endpoint is unavailable or returns an error."""
@@ -98,7 +94,7 @@ class VaultEmbedder:
     # ------------------------------------------------------------------
 
     async def _get_embedding(self, text: str) -> list[float]:
-        truncated = text[:_MAX_EMBED_CHARS]
+        truncated = text[:settings.vault_max_embed_chars]
         endpoint = settings.embedding_endpoint_url
         model = settings.embedding_model_name
         api_key = settings.llm_api_key

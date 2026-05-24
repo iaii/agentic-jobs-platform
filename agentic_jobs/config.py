@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     vault_top_k: int = Field(5, alias="VAULT_TOP_K")
     vault_refresh_interval_hours: int = Field(12, alias="VAULT_REFRESH_INTERVAL_HOURS")
     embedding_timeout_seconds: int = Field(30, alias="EMBEDDING_TIMEOUT_SECONDS")
+    vault_max_embed_chars: int = Field(6000, alias="VAULT_MAX_EMBED_CHARS")
 
     # -------------------------
     # Multi-Agent Pipeline
