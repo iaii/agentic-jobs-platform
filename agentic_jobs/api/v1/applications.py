@@ -45,8 +45,8 @@ def _next_human_id(session: Session) -> str:
     if last_id:
         try:
             next_seq = int(last_id.split("-")[-1]) + 1
-        except ValueError:
-            next_seq = 1
+        except ValueError as exc:
+            raise RuntimeError(f"Corrupt human_id in database: {last_id!r}") from exc
     else:
         next_seq = 1
     return f"{prefix}{next_seq:03d}"
