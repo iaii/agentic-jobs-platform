@@ -23,6 +23,10 @@ PipelineCoordinator.run()
         │
         ├─ [1] DATA GATHERING  (parallel, no LLM)
         │       ├── CompanyScraper   → company about / careers pages (cached 7 days)
+        │       │     domain resolved by _resolve_company_domain():
+        │       │       1. job.company_website  (set at ingestion)
+        │       │       2. strip job-subdomain prefixes from domain_root (legacy fallback)
+        │       │       3. pure ATS domain → None → skip + write vault stub
         │       ├── VaultRetriever   → semantic search over Obsidian vault
         │       └── MemoryStore      → long-term learnings from agent_memories table
         │
@@ -157,13 +161,24 @@ VaultRetriever  → embed query → cosine similarity → expand with wikilink n
 
 ```
 domains.py  → safe URL allowlist, blocked domain list, URL builder
+              extract_company_website(html, job_url) → str | None
+                tries in order:
+                  1. LD+JSON hiringOrganization.url / sameAs
+                  2. <meta property="og:url">
+                  3. <link rel="canonical">
+                  4. external link scan (ATS pages only; skips social/ATS/aggregator)
+                  5. subdomain stripping (company-hosted pages; TLD already known)
+                never constructs a URL from the company name — no TLD guessing
 scraper.py  → CompanyScraper with 10 safety layers (see below)
 cache.py    → CompanyResearchCache: DB (runtime) + Obsidian markdown (human browsing)
+              write_no_domain_note() → writes a stub vault note when no domain resolves
 ```
 
 **Scraped data is persisted in two places:**
 1. `company_cache` table — used at runtime (7-day TTL, keyed by domain)
-2. `{VAULT_PATH}/Company Research/{CompanyName}.md` — human-readable Obsidian copy
+2. `{VAULT_PATH}/Agentic Copilot/Company Research/{CompanyName}.md` — human-readable Obsidian copy
+
+**When no company domain can be resolved** (e.g. job sourced from a pure ATS like Greenhouse with no embedded company URL), a stub note is written to the vault instead of silently skipping. The stub records that research was attempted and instructs how to trigger it again once the company website is known.
 
 **Scraper safety layers (in order):**
 1. HTTPS-only
@@ -283,9 +298,9 @@ agentic_jobs/
     │   ├── embedder.py      VaultEmbedder
     │   └── retriever.py     VaultRetriever (cosine sim + graph expansion)
     ├── research/
-    │   ├── domains.py       Safe URL allowlist, URL builder
+    │   ├── domains.py       Safe URL allowlist, URL builder, extract_company_website()
     │   ├── scraper.py       CompanyScraper (10 safety layers)
-    │   └── cache.py         CompanyResearchCache (DB + Obsidian dual write)
+    │   └── cache.py         CompanyResearchCache (DB + Obsidian dual write + no-domain stub)
     └── memory/
         └── store.py         MemoryStore (short/long-term, auto-assess)
 ```

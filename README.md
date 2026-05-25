@@ -82,7 +82,7 @@ Sitemap → FrontierOrg list → JSON board endpoint → fallback HTML parse
 1. **Frontier seeding**: fetches `sitemap_index.xml`, extracts org slugs, upserts `FrontierOrg` rows (unique on `source` + `org_slug`).
 2. **Batch selection**: picks up to `MAX_ORGS_PER_RUN` orgs ordered by `(priority DESC, last_crawled_at ASC NULLS FIRST)` and not currently `muted_until`.
 3. **Job listing**: `GET /org_slug/embed/job_board/json` → falls back to HTML parsing (`<div class="opening">`) if the endpoint returns 4xx/5xx.
-4. **Detail fetch**: full HTML from the job board page; LD+JSON `application/ld+json` block used to extract the canonical company name and `hiringOrganization.sameAs` / `url` (stored as `company_website` on the `Job` row).
+4. **Detail fetch**: full HTML from the job board page; `extract_company_website()` runs a multi-signal extraction in priority order — LD+JSON `hiringOrganization.url/sameAs`, OG meta `og:url`, `<link rel="canonical">`, external link scan (skipping social/ATS/aggregator domains), and subdomain stripping for company-hosted pages — and stores the result as `company_website` on the `Job` row.
 5. **Rate limiting**: `AsyncRateLimiter` leaky-bucket at `REQUESTS_PER_MINUTE`.
 6. **Robots.txt**: parsed and respected; any disallowed path is silently skipped.
 7. **Canonical ID**: `GH:<job_id>`.
@@ -104,7 +104,8 @@ Two adapters — **Simplify** (`SIMPLIFY:<sha1>`) and **New-Grad-2026** (`NEWGRA
 - **Recency filter**: drops postings older than `GITHUB_MAX_AGE_DAYS` (default 3); understands ISO-8601 strings, Unix epoch integers, and `YYYY-MM-DD` date strings.
 - **Company inference**: extracts company from the job URL path when the feed omits it (Greenhouse/Lever/Workday slug patterns).
 - **No frontier**: these adapters set `uses_frontier = False`; the orchestrator skips the DB frontier for them.
-- **Known limitation**: the Simplify feed provides the Greenhouse embed widget URL (`/embed/job_app?token=…`) as the application link, not the full job-board page. This means LD+JSON is unavailable for Simplify-sourced jobs and `company_website` will be `None`, skipping company research scraping for those entries.
+- **Company website extraction**: prefers `company_url` / `company_website` from the listing JSON (filtered via `_is_real_company_website()`). Falls back to subdomain stripping when the job URL is on a company-hosted domain (e.g. `jobs.apple.com → apple.com`). Pure ATS domains (`boards.greenhouse.io`, `jobs.lever.co`, etc.) produce no company website — research is skipped gracefully and a stub note is written to the Obsidian vault.
+- **Known limitation**: the Simplify feed provides the Greenhouse embed widget URL (`/embed/job_app?token=…`) as the application link rather than the full job-board page. LD+JSON is unavailable for those entries; the subdomain-stripping fallback also cannot help since the embed URL is on `boards.greenhouse.io`. Research is skipped for those jobs and a vault stub is written.
 
 ---
 
@@ -394,9 +395,12 @@ donts: […]
 ```
 Phase 1 — Data gathering (parallel)
   CompanyScraper   → fetch company homepage + about/engineering/careers pages
-                     resolved from job.company_website (extracted from LD+JSON at ingestion)
+                     domain resolved via _resolve_company_domain():
+                       1. job.company_website (set at ingestion by extract_company_website())
+                       2. fallback: strip job-subdomain prefixes from domain_root
+                          (handles jobs ingested before the extraction fix)
+                       3. pure ATS domains → None → skip scrape, write vault stub
                      (CompanyCache TTL=7 days; domain → scraped_data JSONB)
-                     skipped with a warning if company_website is None (e.g. Simplify jobs)
   VaultRetriever   → semantic search Obsidian vault for company insights
                      (VaultEmbedding table; re-indexed on startup if stale)
   Memory loader    → AgentMemory records for this application
@@ -409,6 +413,9 @@ Phase 2 — Research synthesis
   company_intelligence → written to Obsidian vault as a ## Company Intelligence section
                          (stage signals, equity type, employee scale, notable facts)
                          NOT passed to WriterAgent
+                       if no domain resolved → stub note written to vault instead:
+                         {VAULT_PATH}/Agentic Copilot/Company Research/{Company}.md
+                         marks that research was attempted but no website was found
 
 Phase 3 — Writing
   WriterAgent      → LLM call: brief + JD + profile + tone rules
