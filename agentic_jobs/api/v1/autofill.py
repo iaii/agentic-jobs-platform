@@ -173,10 +173,14 @@ class AutofillAnswerResponse(BaseModel):
 _ANSWER_SYSTEM_PROMPT = """\
 You are a job application form-filling assistant. Fill in job application form fields using ONLY the provided candidate profile data.
 
+Each field has an "id" (like "f0", "f1", ...), a "label", a "field_type", and optional "options".
+
 Return a single flat JSON object where:
-- keys are the exact selector strings from the input
+- keys are the field "id" values (e.g. "f0", "f3", "f12")
 - values are answer strings
 Do NOT include markdown, explanations, or code fences. Return ONLY the JSON object.
+
+Example response: {"f0": "Jane", "f1": "jane@email.com", "f4": "Yes"}
 
 Rules:
 1. OMIT any field you cannot answer confidently from the profile. Never invent data.
@@ -206,19 +210,25 @@ async def post_autofill_answer(
     # own display, but the LLM only needs enough context to identify the field — not
     # the full question sentence. Capping here keeps the prompt well under the model's
     # context window on any ATS form.
-    sanitized_fields = [
-        {
-            "selector": f.selector,
+    # Replace opaque CSS selectors (e.g. [data-ajp-id='ajp-23']) with simple
+    # numeric IDs (f0, f1, ...) so local 8B models reliably use them as JSON
+    # keys. We maintain a reverse map to translate the LLM's answers back to
+    # real selectors before returning to the extension.
+    id_to_selector: dict[str, str] = {}
+    sanitized_fields = []
+    skipped_unlabelled = []
+    for i, f in enumerate(payload.fields):
+        if not f.label.strip():
+            skipped_unlabelled.append(f.selector)
+            continue
+        field_id = f"f{i}"
+        id_to_selector[field_id] = f.selector
+        sanitized_fields.append({
+            "id": field_id,
             "label": sanitize(f.label, source="form:label")[:60],
             "field_type": f.field_type,
             "options": f.options,
-        }
-        for f in payload.fields
-        if f.label.strip()  # skip unlabelled fields — LLM can't infer intent
-    ]
-    skipped_unlabelled = [
-        f.selector for f in payload.fields if not f.label.strip()
-    ]
+        })
 
     # Detect whether any field is asking for work-experience descriptions.
     # When yes: load the resume text verbatim so the LLM can answer word-for-word.
@@ -294,24 +304,24 @@ async def post_autofill_answer(
             skipped=[f.selector for f in payload.fields],
         )
 
-    # Keep only string-valued entries that correspond to requested selectors
-    requested = {f.selector for f in payload.fields}
+    # Map LLM's field IDs (f0, f1, ...) back to real selectors
     answers: dict[str, str] = {}
     skipped: list[str] = list(skipped_unlabelled)
 
-    for selector, value in raw_answers.items():
-        if selector not in requested:
+    for field_id, value in raw_answers.items():
+        selector = id_to_selector.get(field_id)
+        if selector is None:
             continue
         if not isinstance(value, str) or not value.strip():
             skipped.append(selector)
             continue
         answers[selector] = value
 
-    # Mark answered fields as accounted for; remaining are skipped
+    # Any labelled field not answered or explicitly skipped goes to skipped
     answered = set(answers)
-    for f in payload.fields:
-        if f.selector not in answered and f.selector not in skipped:
-            skipped.append(f.selector)
+    for field_id, selector in id_to_selector.items():
+        if selector not in answered and selector not in skipped:
+            skipped.append(selector)
 
     return AutofillAnswerResponse(answers=answers, skipped=skipped)
 
