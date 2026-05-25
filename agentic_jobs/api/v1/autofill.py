@@ -202,6 +202,9 @@ async def post_autofill_answer(
     loader = ProfileLoader()
     try:
         profile = loader.load(session)
+        LOGGER.info("[autofill] profile loaded: name=%s email=%s compliance=%s quick_answers=%s",
+                    profile.identity.full_name, profile.identity.email,
+                    list(profile.compliance.keys()), list(profile.quick_answers.keys()))
     except ProfileLoadError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
@@ -295,10 +298,14 @@ async def post_autofill_answer(
     )
 
     try:
+        LOGGER.info("[autofill] calling LLM with %d fields, message length %d chars",
+                    len(sanitized_fields), len(user_message))
         llm_resp = await call_llm(_ANSWER_SYSTEM_PROMPT, user_message, temperature=0.0)
         raw_answers = llm_resp.content
+        LOGGER.info("[autofill] LLM raw_answers type=%s keys=%s",
+                    type(raw_answers).__name__, list(raw_answers.keys()) if isinstance(raw_answers, dict) else repr(raw_answers)[:200])
     except LlmBackendError as exc:
-        LOGGER.warning("LLM autofill answer failed: %s", exc)
+        LOGGER.warning("[autofill] LLM call failed: %s", exc)
         return AutofillAnswerResponse(
             answers={},
             skipped=[f.selector for f in payload.fields],
