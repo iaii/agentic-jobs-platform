@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     # -------------------------
     scraper_rate_limit: int = Field(5, alias="SCRAPER_RATE_LIMIT")
     scraper_timeout_seconds: int = Field(10, alias="SCRAPER_TIMEOUT_SECONDS")
+    scraper_max_body_bytes: int = Field(500_000, alias="SCRAPER_MAX_BODY_BYTES")
+    scraper_max_text_chars: int = Field(3_000, alias="SCRAPER_MAX_TEXT_CHARS")
+    scraper_robots_ttl_seconds: int = Field(3600, alias="SCRAPER_ROBOTS_TTL_SECONDS")
+    scraper_global_concurrency: int = Field(4, alias="SCRAPER_GLOBAL_CONCURRENCY")
     company_cache_ttl_hours: int = Field(168, alias="COMPANY_CACHE_TTL_HOURS")
     company_research_vault_subdir: str = Field("Agentic Copilot/Company Research", alias="COMPANY_RESEARCH_VAULT_SUBDIR")
 

@@ -56,26 +56,12 @@ LOGGER = logging.getLogger(__name__)
 
 USER_AGENT = "AgenticJobsResearchBot/0.1 (company research; not for indexing)"
 
-# Max bytes to read from a single response body. Prevents accidentally
-# downloading large PDFs or minified JS bundles.
-_MAX_BODY_BYTES = 500_000  # 500 KB
-
-# Max plain text characters to keep per page after extraction.
-# Keeps the LLM context usage reasonable.
-_MAX_TEXT_CHARS = 3_000
-
-# Robots.txt cache TTL — re-fetch after this many seconds (1 hour)
-_ROBOTS_TTL_SECONDS = 3600
-
-# Max simultaneous in-flight HTTP requests across all domains
-_GLOBAL_CONCURRENCY = 4
-
 
 @dataclass(slots=True)
 class ScrapedPage:
     url: str
     title: str
-    text: str       # Cleaned plain text, truncated to _MAX_TEXT_CHARS
+    text: str       # Cleaned plain text, truncated to SCRAPER_MAX_TEXT_CHARS
     status_code: int
     error: str = ""
 
@@ -96,7 +82,7 @@ class CompanyScraper:
         )
         # Robots.txt cache: domain → (RobotFileParser, fetched_at timestamp)
         self._robots_cache: dict[str, tuple[RobotFileParser, float]] = {}
-        self._global_sem = asyncio.Semaphore(_GLOBAL_CONCURRENCY)
+        self._global_sem = asyncio.Semaphore(settings.scraper_global_concurrency)
 
     async def scrape(
         self,
@@ -161,7 +147,7 @@ class CompanyScraper:
                 async for chunk in response.aiter_bytes(chunk_size=8192):
                     chunks.append(chunk)
                     total += len(chunk)
-                    if total >= _MAX_BODY_BYTES:
+                    if total >= settings.scraper_max_body_bytes:
                         LOGGER.debug("Scraper: body size limit reached for %s", url)
                         break
 
@@ -195,7 +181,7 @@ class CompanyScraper:
         now = time.monotonic()
         cached = self._robots_cache.get(domain)
 
-        if cached is None or (now - cached[1]) > _ROBOTS_TTL_SECONDS:
+        if cached is None or (now - cached[1]) > settings.scraper_robots_ttl_seconds:
             rp = RobotFileParser()
             rp.set_url(robots_url)
             try:
@@ -258,5 +244,5 @@ class CompanyScraper:
         text = "\n".join(lines)
 
         from agentic_jobs.services.agents.guardrails import sanitize
-        text = sanitize(text[:_MAX_TEXT_CHARS], source=f"scrape:{source_url}")
+        text = sanitize(text[:settings.scraper_max_text_chars], source=f"scrape:{source_url}")
         return title, text
