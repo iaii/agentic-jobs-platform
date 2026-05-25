@@ -193,6 +193,47 @@ class CompanyResearchCache:
         except OSError as exc:
             LOGGER.warning("Could not write intelligence to vault for %s: %s", company_name, exc)
 
+    def write_no_domain_note(self, company_name: str) -> None:
+        """
+        Write a minimal vault note for companies where no website could be
+        resolved, so there is at least a record that research was attempted.
+        Only writes if the file does not already exist (avoids overwriting
+        richer notes from a later successful scrape).
+        """
+        if not settings.vault_path:
+            return
+
+        vault_root = Path(settings.vault_path)
+        research_dir = vault_root / settings.company_research_vault_subdir
+        try:
+            research_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            LOGGER.warning("Could not create Company Research dir in vault: %s", exc)
+            return
+
+        safe_name = _safe_filename(company_name)
+        target = research_dir / f"{safe_name}.md"
+
+        if target.exists():
+            return
+
+        lines = [
+            f"# {company_name} — Company Research",
+            "",
+            f"> **No website resolved** — agentic-jobs-platform could not determine "
+            f"a scrapable company domain for this employer on "
+            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}. "
+            f"The job was sourced from a third-party ATS with no embedded company URL.",
+            "",
+            "_No scraped content available. Add the company website to the job record "
+            "and re-run the pipeline to populate this note._",
+        ]
+        try:
+            target.write_text("\n".join(lines), encoding="utf-8")
+            LOGGER.debug("Vault: wrote no-domain stub for %s", company_name)
+        except OSError as exc:
+            LOGGER.warning("Could not write no-domain vault stub for %s: %s", company_name, exc)
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

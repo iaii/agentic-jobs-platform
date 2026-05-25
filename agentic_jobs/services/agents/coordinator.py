@@ -152,6 +152,10 @@ class PipelineCoordinator:
             scraped_pages = await self._gather_company_data(
                 job.company_name, company_domain, application_id
             )
+
+            if not scraped_pages and not company_domain:
+                CompanyResearchCache(self.session).write_no_domain_note(job.company_name)
+
             vault_matches = await self._search_vault(job.jd_text)
             memory_notes = self._load_memory_notes()
 
