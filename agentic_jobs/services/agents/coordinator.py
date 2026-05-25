@@ -123,7 +123,7 @@ class PipelineCoordinator:
         kit = self._load_kit()
         profile = self._build_profile_bundle()
         word_budget = compute_word_budget()
-        company_domain = extract_domain(job.company_website) if job.company_website else None
+        company_domain = self._resolve_company_domain(job)
         agent_log: list[dict] = []
 
         # Create PipelineRun record
@@ -552,6 +552,34 @@ class PipelineCoordinator:
     # ------------------------------------------------------------------
     # Artifact + profile helpers (mirrors DraftGenerator)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_company_domain(job: models.Job) -> str | None:
+        """
+        Return the best available company domain for research.
+
+        Preference order:
+          1. job.company_website  — set by the discovery adapters from LD+JSON,
+             OG tags, external links, or subdomain stripping (post-fix jobs)
+          2. job.domain_root fallback — for jobs ingested before the extraction
+             fix. Strip known job-related subdomain prefixes; skip pure ATS
+             domains since we cannot derive the company website from them.
+        """
+        from agentic_jobs.services.research.domains import (
+            _is_third_party_domain,
+            _strip_job_subdomains,
+        )
+
+        if job.company_website:
+            return extract_domain(job.company_website)
+
+        if not job.domain_root:
+            return None
+
+        if _is_third_party_domain(job.domain_root):
+            return None
+
+        return _strip_job_subdomains(job.domain_root)
 
     def _ensure_application(self, application_id: UUID) -> models.Application:
         app = self.session.get(models.Application, application_id)
