@@ -105,6 +105,8 @@ class GreenhouseAdapter(SourceAdapter):
         return self._parse_jobs_from_html(org_slug, html, html_url)
 
     async def fetch_job_detail(self, job_ref: JobRef) -> JobDetail:
+        from agentic_jobs.services.research.domains import extract_company_website
+
         html = await self._request_text(job_ref.detail_url)
         company_name = self._company_from_ref(job_ref)
         detail_metadata: dict[str, Any] = {}
@@ -117,12 +119,13 @@ class GreenhouseAdapter(SourceAdapter):
                 company = organization.get("name")
                 if isinstance(company, str) and company.strip():
                     company_name = company.strip()
-                website = organization.get("sameAs") or organization.get("url")
-                if isinstance(website, str) and website.strip().startswith("http"):
-                    detail_metadata["company_website"] = website.strip()
 
         if not company_name:
             company_name = self._slug_to_company(job_ref.org_slug)
+
+        company_website = extract_company_website(html, job_ref.detail_url)
+        if company_website:
+            detail_metadata["company_website"] = company_website
 
         return JobDetail(
             job_ref=job_ref,

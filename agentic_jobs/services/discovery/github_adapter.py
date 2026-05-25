@@ -214,6 +214,11 @@ class GithubPositionsAdapter(SourceAdapter):
         return jobs
 
     async def fetch_job_detail(self, job_ref: JobRef) -> JobDetail:
+        from agentic_jobs.services.research.domains import (
+            _is_third_party_domain,
+            _strip_job_subdomains,
+        )
+
         item: dict[str, Any] = job_ref.metadata.get("item", {})
         company_name = job_ref.metadata.get("company") or _first_non_empty(
             item.get("company"),
@@ -224,9 +229,24 @@ class GithubPositionsAdapter(SourceAdapter):
 
         html = self._build_detail_html(job_ref, item, company_name)
         detail_metadata: dict[str, Any] = {"source_item": item}
+
+        # 1. Prefer company_url from listing JSON if it's a real company site
         company_url = item.get("company_url") or item.get("company_website")
         if isinstance(company_url, str) and _is_real_company_website(company_url):
             detail_metadata["company_website"] = company_url.strip()
+        else:
+            # 2. Fall back to subdomain stripping when the job URL is on a
+            #    company-hosted domain (e.g. jobs.apple.com → apple.com).
+            #    Skip this for third-party ATS pages — we don't know the company
+            #    domain from the URL alone, and guessing TLDs is not safe.
+            try:
+                job_netloc = urlparse(job_ref.detail_url).netloc.lower()
+                if not _is_third_party_domain(job_netloc):
+                    stripped = _strip_job_subdomains(job_netloc)
+                    detail_metadata["company_website"] = f"https://{stripped}"
+            except Exception:
+                pass
+
         return JobDetail(
             job_ref=job_ref,
             html=html,
