@@ -51,6 +51,14 @@ _JD_REQUIREMENTS_MARKERS = (
     "responsibilities", "what we're looking for", "about you",
 )
 
+# How many chars to extract from the requirements section for the vault query.
+_JD_QUERY_EXCERPT_LEN = 600
+# Don't match a marker if fewer than this many chars remain — likely a false positive near EOF.
+_JD_QUERY_MIN_REMAINING = 100
+# Fallback slice when no requirements marker is found: skip the typical intro paragraph.
+_JD_QUERY_FALLBACK_START = 200
+_JD_QUERY_FALLBACK_END = 800
+
 
 def _vault_query_from_jd(jd_text: str) -> str:
     """Extract requirements-section text from JD for vault search.
@@ -62,10 +70,10 @@ def _vault_query_from_jd(jd_text: str) -> str:
     lower = jd_text.lower()
     for marker in _JD_REQUIREMENTS_MARKERS:
         idx = lower.find(marker)
-        if 0 < idx < len(jd_text) - 100:
-            return jd_text[idx:idx + 600]
-    # Fallback: skip likely intro paragraph (~first 200 chars)
-    return jd_text[200:800]
+        if 0 < idx < len(jd_text) - _JD_QUERY_MIN_REMAINING:
+            return jd_text[idx:idx + _JD_QUERY_EXCERPT_LEN]
+    # Fallback: skip likely intro paragraph
+    return jd_text[_JD_QUERY_FALLBACK_START:_JD_QUERY_FALLBACK_END]
 
 
 class PipelineCoordinatorError(RuntimeError):
