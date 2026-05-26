@@ -37,6 +37,17 @@ Part of the **Agentic Job Search Copilot**. This document describes the implemen
 - `POST /api/v1/autofill/answer` — LLM answers specific form fields from profile data.
 - All endpoints are active only when `AUTOFILL_ENABLED=true`.
 
+**`/autofill/answer` — LLM field-matching design**
+
+The extension sends batches of fields to `/autofill/answer`. Each field has an opaque CSS selector (`[data-ajp-id='ajp-N']`) which local 8B models cannot use as JSON keys reliably. The server:
+
+1. Replaces selectors with simple numeric IDs (`f0`, `f1`, …) before sending to the LLM.
+2. Maintains an `id_to_selector` map to translate LLM answers back to real selectors.
+3. Strips unlabelled fields before the LLM call; they go directly to `skipped`.
+4. Truncates field labels to 60 chars and omits null address fields to keep prompts compact.
+5. Serializes LLM calls with a module-level `asyncio.Semaphore(1)` — the local 8B model has an 8192-token KV cache; 3 concurrent requests each at ~3000 tokens would overflow it.
+6. Only includes resume text when the form contains experience/responsibility fields (keeps prompt small for identity-only forms).
+
 ---
 
 ## Slack controls

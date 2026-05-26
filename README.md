@@ -565,7 +565,8 @@ Every application accumulates files under `artifacts/{human_id}/`:
 | **Workday** | first/last name, email, phone, city, postal code, resume highlight |
 | Additional ATS | extend `autofill_extension/content.js` |
 
-The `/api/v1/autofill/answer` endpoint calls the LLM with a system prompt that strictly limits answers to provided profile data ("Do not invent. Match select options exactly."), so there is no hallucinated data risk.
+**`/autofill/answer` — LLM field-matching design:**
+The extension assigns opaque CSS selectors (`[data-ajp-id='ajp-N']`) to each field, which local 8B models can't use as JSON keys. The server remaps them to simple IDs (`f0`, `f1`, …) before the LLM call and translates answers back after. Unlabelled fields are skipped before the LLM. Labels are truncated to 60 chars; null address fields are omitted to reduce token count. LLM calls are serialized via `asyncio.Semaphore(1)` — the local 8B model's 8192-token KV cache can't handle 3 concurrent ~3000-token requests. Resume text is only included when the form contains experience/responsibility fields. The system prompt strictly limits answers to profile data — no invented values.
 
 ---
 
