@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     # -------------------------
     pipeline_pass_threshold: float = Field(7.0, alias="PIPELINE_PASS_THRESHOLD")
     pipeline_max_revisions: int = Field(3, alias="PIPELINE_MAX_REVISIONS")
+    # ResearcherAgent context budgets (chars) — tune per model context window
+    researcher_max_jd_chars: int = Field(2000, alias="RESEARCHER_MAX_JD_CHARS")
+    researcher_max_company_chars_per_page: int = Field(2000, alias="RESEARCHER_MAX_COMPANY_CHARS_PER_PAGE")
+    researcher_max_company_pages: int = Field(4, alias="RESEARCHER_MAX_COMPANY_PAGES")
+    researcher_max_vault_chars: int = Field(800, alias="RESEARCHER_MAX_VAULT_CHARS")
+    researcher_max_vault_excerpts: int = Field(4, alias="RESEARCHER_MAX_VAULT_EXCERPTS")
+    researcher_max_memory_chars: int = Field(1000, alias="RESEARCHER_MAX_MEMORY_CHARS")
 
     # -------------------------
     # Memory

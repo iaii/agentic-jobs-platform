@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any
 
+from agentic_jobs.config import settings
 from agentic_jobs.services.agents.base import BaseAgent
 from agentic_jobs.services.agents.schemas import CompanyIntelligence, ResearchBrief
 from agentic_jobs.services.llm.prompt_builder import ProfileBundle
@@ -13,14 +14,6 @@ from agentic_jobs.services.vault.retriever import VaultMatch
 
 
 LOGGER = logging.getLogger(__name__)
-
-# Context budget (chars) for each input section.
-_MAX_JD_CHARS = 2000
-_MAX_COMPANY_CHARS_PER_PAGE = 2000  # applied per scraped page before joining
-_MAX_COMPANY_PAGES = 4              # take at most this many pages
-_MAX_VAULT_CHARS = 800              # per excerpt
-_MAX_VAULT_EXCERPTS = 4
-_MAX_MEMORY_CHARS = 1000
 
 
 class ResearcherAgent(BaseAgent[ResearchBrief]):
@@ -89,16 +82,16 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
         # Compile company context from scraped pages — truncate per page so every
         # page contributes rather than the first page consuming the entire budget.
         company_text_parts = []
-        for page in scraped_pages[:_MAX_COMPANY_PAGES]:
+        for page in scraped_pages[:settings.researcher_max_company_pages]:
             if page.text:
-                excerpt = self._truncate(page.text, _MAX_COMPANY_CHARS_PER_PAGE)
+                excerpt = self._truncate(page.text, settings.researcher_max_company_chars_per_page)
                 company_text_parts.append(f"[{page.title or page.url}]\n{excerpt}")
         company_text = "\n\n".join(company_text_parts)
 
         # Format vault excerpts
         vault_parts = []
-        for match in vault_matches[:_MAX_VAULT_EXCERPTS]:
-            excerpt = self._truncate(match.text, _MAX_VAULT_CHARS)
+        for match in vault_matches[:settings.researcher_max_vault_excerpts]:
+            excerpt = self._truncate(match.text, settings.researcher_max_vault_chars)
             vault_parts.append(f"[{match.heading} | {match.file_path} | score={match.score:.2f}]\n{excerpt}")
         vault_text = "\n\n".join(vault_parts) if vault_parts else "None available."
 
@@ -117,7 +110,7 @@ class ResearcherAgent(BaseAgent[ResearchBrief]):
 
         payload = {
             "company_name": company_name,
-            "jd_text": self._truncate(jd_text, _MAX_JD_CHARS),
+            "jd_text": self._truncate(jd_text, settings.researcher_max_jd_chars),
             "scraped_company_info": company_text or "No company data available.",
             "vault_excerpts": vault_text,
             "candidate": {
