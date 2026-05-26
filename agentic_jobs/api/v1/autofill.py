@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -26,6 +27,11 @@ from agentic_jobs.services.slack.client import SlackClient
 
 router = APIRouter(prefix="/autofill", tags=["autofill"])
 LOGGER = logging.getLogger(__name__)
+
+# Serialize LLM calls: the local 8B model has an 8192-token KV cache.
+# Three concurrent /answer requests each at ~3000 tokens overflows it.
+# One at a time keeps peak usage under the limit.
+_LLM_SEMAPHORE = asyncio.Semaphore(1)
 
 
 def get_session() -> Session:
@@ -262,6 +268,19 @@ async def post_autofill_answer(
     willing_to_relocate = relocation_answer(profile.identity.base_location, job_location)
     quick_answers = {**profile.quick_answers, "willing_to_relocate": willing_to_relocate}
 
+    addr = profile.identity.address
+    address_data: dict[str, str] = {}
+    if addr:
+        for k, v in {
+            "line1": addr.line1,
+            "city": addr.city,
+            "state": addr.state,
+            "postal_code": addr.postal_code,
+            "country": addr.country,
+        }.items():
+            if v:
+                address_data[k] = v
+
     profile_data: dict[str, Any] = {
         "identity": {
             "full_name": profile.identity.full_name,
@@ -269,13 +288,7 @@ async def post_autofill_answer(
             "email": profile.identity.email,
             "phone": profile.identity.phone,
             "base_location": profile.identity.base_location,
-            "address": {
-                "line1": profile.identity.address.line1 if profile.identity.address else None,
-                "city": profile.identity.address.city if profile.identity.address else None,
-                "state": profile.identity.address.state if profile.identity.address else None,
-                "postal_code": profile.identity.address.postal_code if profile.identity.address else None,
-                "country": profile.identity.address.country if profile.identity.address else None,
-            },
+            **({"address": address_data} if address_data else {}),
         },
         "links": profile.links,
         "compliance": profile.compliance,
@@ -300,7 +313,8 @@ async def post_autofill_answer(
     try:
         LOGGER.info("[autofill] calling LLM with %d fields, message length %d chars",
                     len(sanitized_fields), len(user_message))
-        llm_resp = await call_llm(_ANSWER_SYSTEM_PROMPT, user_message, temperature=0.0)
+        async with _LLM_SEMAPHORE:
+            llm_resp = await call_llm(_ANSWER_SYSTEM_PROMPT, user_message, temperature=0.0)
         raw_answers = llm_resp.content
         LOGGER.info("[autofill] LLM raw_answers type=%s keys=%s",
                     type(raw_answers).__name__, list(raw_answers.keys()) if isinstance(raw_answers, dict) else repr(raw_answers)[:200])
