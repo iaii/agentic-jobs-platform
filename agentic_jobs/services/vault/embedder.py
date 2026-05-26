@@ -169,7 +169,7 @@ class VaultEmbedder:
         if not api_key:
             return False
         try:
-            async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+            async with httpx.AsyncClient(timeout=settings.embedding_timeout_seconds) as client:
                 resp = await client.post(
                     endpoint,
                     json={"model": settings.embedding_model_name, "input": "ping"},

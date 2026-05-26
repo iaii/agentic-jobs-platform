@@ -37,7 +37,6 @@ def _is_real_company_website(url: str) -> bool:
     if not url.startswith("http"):
         return False
     try:
-        from urllib.parse import urlparse
         host = urlparse(url).netloc.lower()
         return host not in _AGGREGATOR_PROFILE_HOSTS
     except Exception:

@@ -97,6 +97,7 @@ class MemoryStore:
             source=source_agent,
             expires_at=expires,
         ))
+        self.session.commit()
 
     def get_short_term(self, application_id: UUID) -> list[str]:
         now = datetime.now(timezone.utc)

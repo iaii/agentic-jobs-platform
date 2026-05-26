@@ -186,7 +186,7 @@ class CompanyScraper:
             rp.set_url(robots_url)
             try:
                 async with self._global_sem:
-                    resp = await client.get(robots_url, timeout=5.0)
+                    resp = await client.get(robots_url, timeout=float(settings.request_timeout_seconds))
                     if resp.status_code == 200:
                         rp.parse(resp.text.splitlines())
                     else:
