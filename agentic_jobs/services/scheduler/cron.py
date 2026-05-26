@@ -46,6 +46,10 @@ def _next_run_time(now_pt: datetime) -> datetime:
     interval = max(1, int(getattr(settings, "discovery_interval_hours", 3)))
     start_hour = settings.scheduler_window_start_hour_pt
     end_hour = settings.scheduler_window_end_hour_pt
+    if end_hour < start_hour:
+        # Misconfigured window — skip to next day at start_hour rather than looping forever
+        next_day = now_pt.date() + timedelta(days=1)
+        return datetime.combine(next_day, time(hour=start_hour, minute=0, second=0), tzinfo=PT_ZONE)
     # Align to the next interval boundary
     current_hour = now_pt.hour
     # Find the smallest h >= current_hour that satisfies (h - start) % interval == 0
