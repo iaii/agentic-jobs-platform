@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from agentic_jobs.db.session import get_session
-from agentic_jobs.services.drafts.generator import DraftGenerator, DraftGeneratorError, DraftResult
+from agentic_jobs.services.drafts.generator import DraftGenerator, DraftGeneratorError, DraftNotFoundError, DraftResult
 
 
 router = APIRouter()
@@ -55,5 +55,7 @@ async def create_draft(
             post_to_slack=False,
         )
         return DraftResponse.from_result(result)
-    except DraftGeneratorError as exc:
+    except DraftNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DraftGeneratorError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc

@@ -51,6 +51,10 @@ class DraftGeneratorError(RuntimeError):
     """Raised when draft generation fails."""
 
 
+class DraftNotFoundError(DraftGeneratorError):
+    """Raised when a required resource (application, job) cannot be found."""
+
+
 class DraftGenerator:
     def __init__(self, session: Session, slack_client: SlackClient | None = None) -> None:
         self.session = session
@@ -65,7 +69,7 @@ class DraftGenerator:
     def _ensure_application(self, application_id: UUID) -> models.Application:
         app = self.session.get(models.Application, application_id)
         if app is None:
-            raise DraftGeneratorError("Application not found.")
+            raise DraftNotFoundError("Application not found.")
         return app
 
     def _build_profile_bundle(self) -> ProfileBundle:
