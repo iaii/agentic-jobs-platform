@@ -223,6 +223,18 @@ async def handle_slack_event(
     # ------------------------------------------------------------------
     # !remember command
     # ------------------------------------------------------------------
+    if text.lower().startswith("!help"):
+        await slack_client.post_thread_message(
+            channel=channel, thread_ts=thread_ts,
+            text=(
+                "*Available commands:*\n"
+                "• `!remember <note>` — save a style or preference note to long-term memory\n"
+                "• `!help` — show this message\n\n"
+                "To revise the cover letter, just type your feedback directly (no `!` needed)."
+            ),
+        )
+        return
+
     if text.lower().startswith("!remember"):
         note = text[len("!remember"):].strip()
         if note:
@@ -238,6 +250,13 @@ async def handle_slack_event(
                 )
             except Exception:  # noqa: BLE001
                 LOGGER.warning("Failed to save !remember note")
+        return
+
+    if text.startswith("!"):
+        await slack_client.post_thread_message(
+            channel=channel, thread_ts=thread_ts,
+            text=f"Unknown command `{text.split()[0]}`. Type `!help` to see available commands.",
+        )
         return
 
     application = session.execute(
