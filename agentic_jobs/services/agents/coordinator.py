@@ -236,8 +236,9 @@ class PipelineCoordinator:
                     CompanyResearchCache(self.session).write_intelligence_to_vault(
                         job.company_name, company_domain, research_brief.company_intelligence
                     )
-                except Exception:
-                    LOGGER.warning("[coordinator] Failed to write company intelligence to vault")
+                except Exception as exc:
+                    LOGGER.warning("[coordinator] Failed to write company intelligence to vault: %s", exc)
+                    agent_log.append({"phase": "vault_write", "error": str(exc)})
 
             await self._post_progress(application, post_to_slack, "_Research complete. Writing draft..._")
 
