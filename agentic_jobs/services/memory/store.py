@@ -258,7 +258,13 @@ class MemoryStore:
         user = f"Feedback notes to analyze:\n{bullet_list}"
 
         response = await call_llm(system, user, temperature=0.1)
-        raw_learnings = response.content.get("learnings", [])
+        content = response.content
+        if isinstance(content, list):
+            raw_learnings = content
+        elif isinstance(content, dict):
+            raw_learnings = content.get("learnings", [])
+        else:
+            raw_learnings = []
         return [str(l).strip() for l in raw_learnings if l and str(l).strip()]
 
     @staticmethod
