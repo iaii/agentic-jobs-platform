@@ -378,10 +378,21 @@ class PipelineCoordinator:
             )
 
         except Exception as exc:
+            # Roll back any partial transaction before writing failure state.
+            # A failed mid-pipeline commit (e.g. line 357) leaves the session
+            # in an invalid state; committing without rollback first raises
+            # InvalidRequestError and loses the original error.
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
             run_record.status = PipelineStatus.FAILED
             run_record.agent_log = agent_log
             run_record.finished_at = datetime.now(timezone.utc)
-            self.session.commit()
+            try:
+                self.session.commit()
+            except Exception:
+                LOGGER.exception("[coordinator] Failed to persist pipeline failure state for run %s", pipeline_run_id)
             raise PipelineCoordinatorError(f"Pipeline failed: {exc}") from exc
 
     # ------------------------------------------------------------------
