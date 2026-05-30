@@ -189,12 +189,11 @@ class CompanyScraper:
                     resp = await client.get(robots_url, timeout=float(settings.request_timeout_seconds))
                     if resp.status_code == 200:
                         rp.parse(resp.text.splitlines())
-                    else:
-                        # No robots.txt or error → assume allowed
-                        return True
+                    # Non-200 (404, 403, etc.) → no rules, assume allowed.
+                    # Cache the empty parser so we don't re-fetch on every URL.
             except Exception:
-                # Network error fetching robots.txt → assume allowed
-                return True
+                # Network error fetching robots.txt → assume allowed, still cache.
+                pass
             self._robots_cache[domain] = (rp, now)
         else:
             rp = cached[0]
