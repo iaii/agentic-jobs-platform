@@ -44,7 +44,8 @@ async def process_status_update(
     }:
         task.finished_at = now
     if update.status in {AutofillTaskStatus.BLOCKED, AutofillTaskStatus.FAILED}:
-        task.last_error = update.blocked_reason or update.message
+        parts = [p for p in (update.blocked_reason, update.message) if p]
+        task.last_error = " | ".join(parts) if parts else None
     session.add(task)
     session.commit()
 
