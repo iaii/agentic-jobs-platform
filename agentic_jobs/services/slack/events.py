@@ -237,19 +237,35 @@ async def handle_slack_event(
 
     if text.lower().startswith("!remember"):
         note = text[len("!remember"):].strip()
-        if note:
-            application = session.execute(
-                select(models.Application).where(models.Application.slack_thread_ts == thread_ts)
-            ).scalar_one_or_none()
-            try:
-                memory = MemoryStore(session)
-                memory.save_explicit(note, application_id=application.id if application else None)
-                await slack_client.post_thread_message(
-                    channel=channel, thread_ts=thread_ts,
-                    text=f":brain: Remembered: _{note}_",
-                )
-            except Exception:  # noqa: BLE001
-                LOGGER.warning("Failed to save !remember note")
+        _MAX_REMEMBER_CHARS = 500
+        if not note:
+            await slack_client.post_thread_message(
+                channel=channel, thread_ts=thread_ts,
+                text="_Nothing to remember. Usage: `!remember <note>`_",
+            )
+            return
+        if len(note) > _MAX_REMEMBER_CHARS:
+            await slack_client.post_thread_message(
+                channel=channel, thread_ts=thread_ts,
+                text=f"_Note too long (max {_MAX_REMEMBER_CHARS} chars). Please shorten it._",
+            )
+            return
+        application = session.execute(
+            select(models.Application).where(models.Application.slack_thread_ts == thread_ts)
+        ).scalar_one_or_none()
+        try:
+            memory = MemoryStore(session)
+            memory.save_explicit(note, application_id=application.id if application else None)
+            await slack_client.post_thread_message(
+                channel=channel, thread_ts=thread_ts,
+                text=f":brain: Remembered: _{note}_",
+            )
+        except Exception:  # noqa: BLE001
+            LOGGER.warning("Failed to save !remember note")
+            await slack_client.post_thread_message(
+                channel=channel, thread_ts=thread_ts,
+                text="_Failed to save note. Please try again._",
+            )
         return
 
     if text.startswith("!"):
