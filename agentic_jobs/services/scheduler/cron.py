@@ -266,8 +266,17 @@ async def _vault_refresh_job() -> None:
 
 async def scheduler_job() -> None:
     global _last_run_at_utc
+    start_hour = settings.scheduler_window_start_hour_pt
+    end_hour = settings.scheduler_window_end_hour_pt
+    if end_hour < start_hour:
+        LOGGER.error(
+            "Scheduler window is misconfigured: start_hour=%d > end_hour=%d — "
+            "discovery will never run. Fix SCHEDULER_WINDOW_START_HOUR_PT / END_HOUR_PT.",
+            start_hour, end_hour,
+        )
+        return
     now_pt = datetime.now(tz=PT_ZONE)
-    if not (settings.scheduler_window_start_hour_pt <= now_pt.hour <= settings.scheduler_window_end_hour_pt):
+    if not (start_hour <= now_pt.hour <= end_hour):
         LOGGER.info("Current time outside scheduler window: %s", now_pt.isoformat())
         return
 
