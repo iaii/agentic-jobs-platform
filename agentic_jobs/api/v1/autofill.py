@@ -226,11 +226,13 @@ async def post_autofill_answer(
     id_to_selector: dict[str, str] = {}
     sanitized_fields = []
     skipped_unlabelled = []
-    for i, f in enumerate(payload.fields):
+    field_counter = 0
+    for f in payload.fields:
         if not f.label.strip():
             skipped_unlabelled.append(f.selector)
             continue
-        field_id = f"f{i}"
+        field_id = f"f{field_counter}"
+        field_counter += 1
         id_to_selector[field_id] = f.selector
         sanitized_fields.append({
             "id": field_id,
