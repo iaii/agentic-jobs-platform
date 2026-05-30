@@ -479,18 +479,29 @@ async def handle_save_to_tracker(
         }
 
     score_result = score_job(job)
-    human_id = _next_human_id(session)
-    app = models.Application(
-        human_id=human_id,
-        job_id=job.id,
-        status=ApplicationStatus.QUEUED,
-        score=score_result.score,
-        canonical_job_id=job.job_id_canonical,
-        submission_mode=job.submission_mode,
-    )
-    apply_stage(app, ApplicationStage.INTERESTED)
-    session.add(app)
-    session.flush()
+    max_attempts = 5
+    app: models.Application | None = None
+    for attempt in range(max_attempts):
+        human_id = _next_human_id(session)
+        app = models.Application(
+            human_id=human_id,
+            job_id=job.id,
+            status=ApplicationStatus.QUEUED,
+            score=score_result.score,
+            canonical_job_id=job.job_id_canonical,
+            submission_mode=job.submission_mode,
+        )
+        apply_stage(app, ApplicationStage.INTERESTED)
+        session.add(app)
+        try:
+            session.flush()
+            break
+        except IntegrityError:
+            session.rollback()
+            if attempt == max_attempts - 1:
+                raise SlackActionError("Could not allocate a unique application ID after several attempts.")
+            LOGGER.warning("human_id collision on %s, retrying (%d/%d)", human_id, attempt + 1, max_attempts)
+    assert app is not None
     _persist_jd_snapshot(session, app, job)
 
     # Source channel/thread from the interaction payload
