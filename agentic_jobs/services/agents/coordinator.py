@@ -325,6 +325,14 @@ class PipelineCoordinator:
             # ----------------------------------------------------------------
             # Phase 4: Persist
             # ----------------------------------------------------------------
+            # Lock the application row before counting versions so two concurrent
+            # pipelines for the same application can't both read count=0 and both
+            # write cl-v1.md, overwriting each other.
+            self.session.execute(
+                select(models.Application.id)
+                .where(models.Application.id == application_id)
+                .with_for_update()
+            )
             version_number = self._count_cover_letter_versions(application_id) + 1
             uri = self._write_artifact(application, version_number, draft.content_md)
 
