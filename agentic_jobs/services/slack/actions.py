@@ -216,7 +216,7 @@ def _stage_select_options() -> list[dict[str, Any]]:
 
 
 
-def _truncate_text(text: str, max_chars: int = 2500) -> str:
+def _truncate_text(text: str, max_chars: int = 2700) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 1].rstrip() + "…"
@@ -226,7 +226,7 @@ def _build_text_block(title: str, body: str | None) -> dict[str, Any]:
     if not body:
         content = "_Not available_"
     else:
-        truncated = _truncate_text(body, 2700)
+        truncated = _truncate_text(body)
         content = f"```{truncated}```"
     return {
         "type": "section",
@@ -667,7 +667,7 @@ async def handle_needs_review_reject(
     payload: dict[str, Any],
     session: Session,
     slack_client: SlackClient,
-    mute_days: int = 7,
+    mute_days: int | None = None,
 ) -> dict[str, Any]:
     action = _extract_first_action(payload)
     domain_root = action.get("value")
@@ -682,9 +682,10 @@ async def handle_needs_review_reject(
 
     reviewer = _extract_user_name(payload)
     now_utc = datetime.now(tz=timezone.utc)
+    effective_mute_days = mute_days if mute_days is not None else settings.domain_review_mute_days
 
     domain.status = DomainReviewStatus.MUTED
-    domain.muted_until = now_utc + timedelta(days=mute_days)
+    domain.muted_until = now_utc + timedelta(days=effective_mute_days)
     domain.resolved_at = None
     session.commit()
 

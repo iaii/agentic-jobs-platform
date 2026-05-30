@@ -88,7 +88,7 @@ class MemoryStore:
         source_agent: str,
         category: MemoryCategory = MemoryCategory.FEEDBACK_PATTERN,
     ) -> None:
-        expires = datetime.now(timezone.utc) + timedelta(days=7)
+        expires = datetime.now(timezone.utc) + timedelta(days=settings.memory_short_term_ttl_days)
         self.session.add(models.AgentMemory(
             application_id=application_id,
             memory_type=MemoryType.SHORT_TERM,

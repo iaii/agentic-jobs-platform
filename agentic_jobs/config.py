@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     scraper_global_concurrency: int = Field(4, alias="SCRAPER_GLOBAL_CONCURRENCY")
     company_cache_ttl_hours: int = Field(168, alias="COMPANY_CACHE_TTL_HOURS")
     company_research_vault_subdir: str = Field("Agentic Copilot/Company Research", alias="COMPANY_RESEARCH_VAULT_SUBDIR")
+    domain_review_mute_days: int = Field(7, alias="DOMAIN_REVIEW_MUTE_DAYS")
+    memory_short_term_ttl_days: int = Field(7, alias="MEMORY_SHORT_TERM_TTL_DAYS")
 
     model_config = SettingsConfigDict(
         env_file=".env",

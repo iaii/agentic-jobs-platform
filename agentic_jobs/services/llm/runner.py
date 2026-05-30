@@ -240,7 +240,7 @@ async def _call_qwen_backend(payload: Mapping[str, Any]) -> LlmResponse:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    timeout = max(5.0, float(settings.llm_timeout_seconds or 60))
+    timeout = max(5.0, float(settings.llm_timeout_seconds or 120))
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(
             settings.llm_endpoint_url,
