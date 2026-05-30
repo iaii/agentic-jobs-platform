@@ -293,12 +293,22 @@ class DraftGenerator:
         if cover_letter_md:
             artifact_doc, downloads_doc, doc_title = self._export_final_docx(application, cover_letter_md)
             if artifact_doc:
-                artifact = models.Artifact(
-                    application_id=application.id,
-                    type=ArtifactType.COVER_LETTER_FINAL_PDF,
-                    uri=f"file://{artifact_doc.resolve()}",
-                )
-                self.session.add(artifact)
+                existing_final = self.session.execute(
+                    select(models.Artifact)
+                    .where(
+                        models.Artifact.application_id == application.id,
+                        models.Artifact.type == ArtifactType.COVER_LETTER_FINAL_PDF,
+                    )
+                    .limit(1)
+                ).scalar_one_or_none()
+                if existing_final:
+                    existing_final.uri = f"file://{artifact_doc.resolve()}"
+                else:
+                    self.session.add(models.Artifact(
+                        application_id=application.id,
+                        type=ArtifactType.COVER_LETTER_FINAL_PDF,
+                        uri=f"file://{artifact_doc.resolve()}",
+                    ))
         stmt = (
             select(models.ApplicationFeedback.text)
             .where(
