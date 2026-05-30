@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from agentic_jobs.core.enums import ApplicationStage, ArtifactType
@@ -101,9 +102,8 @@ async def create_application(
         )
 
     score_result = score_job(job)
-    human_id = _next_human_id(db)
     app = models.Application(
-        human_id=human_id,
+        human_id=_next_human_id(db),
         job_id=job.id,
         score=score_result.score,
         canonical_job_id=job.job_id_canonical,
@@ -111,7 +111,14 @@ async def create_application(
     )
     apply_stage(app, ApplicationStage.INTERESTED)
     db.add(app)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        # Two concurrent creates raced on human_id — recompute and retry once.
+        app.human_id = _next_human_id(db)
+        db.add(app)
+        db.flush()
     _persist_jd_snapshot(db, app, job)
     db.commit()
     db.refresh(app)
