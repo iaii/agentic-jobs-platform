@@ -26,6 +26,7 @@ from agentic_jobs.services.artifacts.utils import ARTIFACTS_DIR, load_artifact_t
 from agentic_jobs.services.agents.coordinator import PipelineCoordinator, PipelineCoordinatorError
 from agentic_jobs.services.drafts.generator import DraftGenerator, DraftGeneratorError
 from agentic_jobs.services.ranking import score_job
+from agentic_jobs.services.applications.human_id import next_human_id
 from agentic_jobs.services.applications.stage import ARCHIVED_STAGES, apply_stage, stage_display
 from agentic_jobs.services.slack.client import SlackClient, SlackError
 from agentic_jobs.services.slack.tracker import MasterTracker
@@ -433,26 +434,6 @@ def _queue_stage_side_effects(application_id: UUID, stage: ApplicationStage, act
     )
 
 
-def _next_human_id(session: Session) -> str:
-    now = datetime.now(tz=timezone.utc)
-    prefix = f"APP-{now.year}-"
-    stmt = (
-        select(models.Application.human_id)
-        .where(models.Application.human_id.like(f"{prefix}%"))
-        .order_by(models.Application.human_id.desc())
-        .limit(1)
-    )
-    last_id = session.execute(stmt).scalar_one_or_none()
-    if last_id:
-        try:
-            next_seq = int(last_id.split("-")[-1]) + 1
-        except ValueError as exc:
-            raise RuntimeError(f"Corrupt human_id in database: {last_id!r}") from exc
-    else:
-        next_seq = 1
-    return f"{prefix}{next_seq:03d}"
-
-
 async def handle_save_to_tracker(
     payload: dict[str, Any],
     session: Session,
@@ -482,7 +463,7 @@ async def handle_save_to_tracker(
     max_attempts = 5
     app: models.Application | None = None
     for attempt in range(max_attempts):
-        human_id = _next_human_id(session)
+        human_id = next_human_id(session)
         app = models.Application(
             human_id=human_id,
             job_id=job.id,

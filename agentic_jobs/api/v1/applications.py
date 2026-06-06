@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from agentic_jobs.core.enums import ApplicationStage, ArtifactType
 from agentic_jobs.db import models
 from agentic_jobs.db.session import get_session
+from agentic_jobs.services.applications.human_id import next_human_id
 from agentic_jobs.services.applications.stage import apply_stage
 from agentic_jobs.services.artifacts.utils import ARTIFACTS_DIR
 from agentic_jobs.services.ranking import score_job
@@ -31,26 +32,6 @@ class CreateApplicationResponse(BaseModel):
     status: str
     score: float | None
     created_at: datetime
-
-
-def _next_human_id(session: Session) -> str:
-    now = datetime.now(tz=timezone.utc)
-    prefix = f"APP-{now.year}-"
-    stmt = (
-        select(models.Application.human_id)
-        .where(models.Application.human_id.like(f"{prefix}%"))
-        .order_by(models.Application.human_id.desc())
-        .limit(1)
-    )
-    last_id = session.execute(stmt).scalar_one_or_none()
-    if last_id:
-        try:
-            next_seq = int(last_id.split("-")[-1]) + 1
-        except ValueError as exc:
-            raise RuntimeError(f"Corrupt human_id in database: {last_id!r}") from exc
-    else:
-        next_seq = 1
-    return f"{prefix}{next_seq:03d}"
 
 
 def _persist_jd_snapshot(session: Session, application: models.Application, job: models.Job) -> None:
@@ -103,7 +84,7 @@ async def create_application(
 
     score_result = score_job(job)
     app = models.Application(
-        human_id=_next_human_id(db),
+        human_id=next_human_id(db),
         job_id=job.id,
         score=score_result.score,
         canonical_job_id=job.job_id_canonical,
@@ -116,7 +97,7 @@ async def create_application(
     except IntegrityError:
         db.rollback()
         # Two concurrent creates raced on human_id — recompute and retry once.
-        app.human_id = _next_human_id(db)
+        app.human_id = next_human_id(db)
         db.add(app)
         db.flush()
     _persist_jd_snapshot(db, app, job)
