@@ -1,11 +1,17 @@
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from agentic_jobs.main import app
 from agentic_jobs.config import settings
+from agentic_jobs.core.enums import TrustVerdict
+from agentic_jobs.db.session import Base, get_session
 from agentic_jobs.services.discovery.base import DiscoverySummary
 from agentic_jobs.services.drafts.generator import DraftResult
+from agentic_jobs.services.trust.evaluator import TrustResult
 from agentic_jobs.api.v1.drafts import get_draft_generator
 
 
@@ -16,16 +22,65 @@ settings.environment = "test"
 client = TestClient(app)
 
 
-def test_trust_evaluate_stub() -> None:
-    response = client.post("/api/v1/trust/evaluate")
-    assert response.status_code == 200
-    assert response.json() == {"message": "stub"}
+def test_trust_evaluate_validates_url() -> None:
+    # No body, and a url without a scheme, both fail request validation.
+    assert client.post("/api/v1/trust/evaluate").status_code == 422
+    assert client.post("/api/v1/trust/evaluate", json={"url": "example.com"}).status_code == 422
 
 
-def test_applications_create_stub() -> None:
-    response = client.post("/api/v1/applications/create")
+def test_trust_evaluate_returns_result(monkeypatch) -> None:
+    async def fake_evaluate(url: str, domain_root: str) -> TrustResult:
+        return TrustResult(
+            score=90,
+            verdict=TrustVerdict.AUTO_SAFE,
+            signals=[{"name": "tls", "detail": "valid"}],
+        )
+
+    monkeypatch.setattr("agentic_jobs.api.v1.trust.evaluate", fake_evaluate)
+    response = client.post(
+        "/api/v1/trust/evaluate",
+        json={"url": "https://example.com/jobs/1"},
+    )
     assert response.status_code == 200
-    assert response.json() == {"message": "stub"}
+    data = response.json()
+    assert data["domain_root"] == "example.com"
+    assert data["score"] == 90
+    assert data["verdict"] == "auto-safe"
+    assert data["signals"] == [{"name": "tls", "detail": "valid"}]
+
+
+def test_applications_create_requires_body() -> None:
+    assert client.post("/api/v1/applications/create").status_code == 422
+
+
+def test_applications_create_unknown_job_returns_404() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, future=True)
+
+    def override_get_session():
+        db = TestingSession()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        response = client.post(
+            "/api/v1/applications/create",
+            json={"job_id": str(uuid4())},
+        )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
 
 
 def test_discover_run_endpoint(monkeypatch) -> None:
