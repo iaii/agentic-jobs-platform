@@ -1,0 +1,11 @@
+# Permissive filter used only by discovery pipeline tests. Decoupled from the
+# production config/job_filters.yaml so these tests exercise the full ingest
+# pipeline for every fixture job regardless of how production keywords are tuned.
+# "engineer" matches all fixture titles (Software Engineer, Full Stack Engineer,
+# Platform Engineer - New Grad, Software Engineer 2026).
+filters:
+  include_keywords:
+    - engineer
+    - new grad
+  exclude_keywords:
+    - __never_exclude__

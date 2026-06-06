@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -8,6 +9,10 @@ from sqlalchemy import select
 from agentic_jobs.core.enums import JobSourceType, SubmissionMode, TrustVerdict
 from agentic_jobs.db import models
 from agentic_jobs.services.discovery.orchestrator import run_discovery
+
+# Permissive filter so the pipeline tests insert every fixture job regardless of
+# how the production config/job_filters.yaml keywords are tuned.
+_TEST_FILTER_CONFIG = str(Path(__file__).resolve().parent.parent / "fixtures" / "job_filters_test.yaml")
 
 
 def test_discover_from_sitemap_returns_slugs(greenhouse_adapter) -> None:
@@ -29,6 +34,7 @@ def test_run_discovery_inserts_jobs(
     greenhouse_adapter,
     test_settings,
 ) -> None:
+    test_settings.job_filter_config_path = _TEST_FILTER_CONFIG
     summary = asyncio.run(run_discovery(sqlite_session, [greenhouse_adapter], test_settings))
 
     assert summary.orgs_crawled == 2
@@ -68,6 +74,7 @@ def test_run_discovery_with_github_adapters(
     github_adapters,
     test_settings,
 ) -> None:
+    test_settings.job_filter_config_path = _TEST_FILTER_CONFIG
     adapters = [greenhouse_adapter] + github_adapters
     summary = asyncio.run(run_discovery(sqlite_session, adapters, test_settings))
 
