@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 from agentic_jobs.core.enums import JobSourceType, SubmissionMode
 from agentic_jobs.db import models
 from agentic_jobs.services.discovery.orchestrator import (
-    _hash_seen_recently,
-    _job_seen_recently,
+    _hash_exists,
+    _job_exists,
 )
 
 
@@ -21,7 +21,7 @@ def _create_job(session, **overrides):
         "jd_text": "Build services.",
         "requirements": [{"type": "bullet", "value": "Python"}],
         "job_id_canonical": "SRC:123",
-        "scraped_at": datetime.utcnow(),
+        "scraped_at": datetime.now(timezone.utc),
         "hash": "hash-123",
     }
     defaults.update(overrides)
@@ -32,36 +32,19 @@ def _create_job(session, **overrides):
     return job
 
 
-def test_job_seen_recently_respects_cutoff(sqlite_session):
-    cutoff = datetime.utcnow() - timedelta(days=30)
-    job = _create_job(
-        sqlite_session,
-        job_id_canonical="SRC:job",
-        scraped_at=datetime.utcnow() - timedelta(days=45),
-    )
+def test_job_exists_matches_canonical_id(sqlite_session):
+    job = _create_job(sqlite_session, job_id_canonical="SRC:job")
 
-    assert _job_seen_recently(sqlite_session, job.job_id_canonical, cutoff) is False
-
-    job.scraped_at = datetime.utcnow()
-    sqlite_session.commit()
-    sqlite_session.refresh(job)
-
-    assert _job_seen_recently(sqlite_session, job.job_id_canonical, cutoff) is True
+    assert _job_exists(sqlite_session, job.job_id_canonical) is True
+    assert _job_exists(sqlite_session, "SRC:never-seen") is False
 
 
-def test_hash_seen_recently_respects_cutoff(sqlite_session):
-    cutoff = datetime.utcnow() - timedelta(days=30)
+def test_hash_exists_matches_hash(sqlite_session):
     job = _create_job(
         sqlite_session,
         job_id_canonical="SRC:another",
         hash="hash-abc",
-        scraped_at=datetime.utcnow() - timedelta(days=60),
     )
 
-    assert _hash_seen_recently(sqlite_session, job.hash, cutoff) is False
-
-    job.scraped_at = datetime.utcnow()
-    sqlite_session.commit()
-    sqlite_session.refresh(job)
-
-    assert _hash_seen_recently(sqlite_session, job.hash, cutoff) is True
+    assert _hash_exists(sqlite_session, job.hash) is True
+    assert _hash_exists(sqlite_session, "hash-never-seen") is False
