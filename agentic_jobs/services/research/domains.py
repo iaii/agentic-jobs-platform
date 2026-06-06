@@ -97,7 +97,7 @@ def is_safe_url(url: str) -> bool:
     if parsed.scheme != "https":
         return False
 
-    netloc = parsed.netloc.lower().lstrip("www.")
+    netloc = parsed.netloc.lower().removeprefix("www.")
     path = parsed.path.lower()
 
     # Hard block list
@@ -134,7 +134,7 @@ def build_research_urls(company_name: str, company_domain: str) -> list[str]:
     Returns at most 5 URLs to keep the scrape focused.
     """
     urls: list[str] = []
-    domain = company_domain.lower().strip().lstrip("www.")
+    domain = company_domain.lower().strip().removeprefix("www.")
 
     if not domain:
         return []
@@ -160,7 +160,7 @@ def extract_domain(url: str) -> str:
     """Extract the bare domain (without www.) from a URL."""
     try:
         netloc = urlparse(url).netloc.lower()
-        return netloc.lstrip("www.")
+        return netloc.removeprefix("www.")
     except Exception:
         return ""
 
