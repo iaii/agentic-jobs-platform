@@ -26,7 +26,7 @@ from agentic_jobs.services.artifacts.utils import ARTIFACTS_DIR, load_artifact_t
 from agentic_jobs.services.agents.coordinator import PipelineCoordinator, PipelineCoordinatorError
 from agentic_jobs.services.drafts.generator import DraftGenerator, DraftGeneratorError
 from agentic_jobs.services.ranking import score_job
-from agentic_jobs.services.applications.human_id import next_human_id
+from agentic_jobs.services.applications.human_id import insert_application_with_human_id
 from agentic_jobs.services.applications.stage import ARCHIVED_STAGES, apply_stage, stage_display
 from agentic_jobs.services.slack.client import SlackClient, SlackError
 from agentic_jobs.services.slack.tracker import MasterTracker
@@ -460,11 +460,9 @@ async def handle_save_to_tracker(
         }
 
     score_result = score_job(job)
-    max_attempts = 5
-    app: models.Application | None = None
-    for attempt in range(max_attempts):
-        human_id = next_human_id(session)
-        app = models.Application(
+
+    def _build(human_id: str) -> models.Application:
+        new_app = models.Application(
             human_id=human_id,
             job_id=job.id,
             status=ApplicationStatus.QUEUED,
@@ -472,17 +470,14 @@ async def handle_save_to_tracker(
             canonical_job_id=job.job_id_canonical,
             submission_mode=job.submission_mode,
         )
-        apply_stage(app, ApplicationStage.INTERESTED)
-        session.add(app)
-        try:
-            session.flush()
-            break
-        except IntegrityError:
-            session.rollback()
-            if attempt == max_attempts - 1:
-                raise SlackActionError("Could not allocate a unique application ID after several attempts.")
-            LOGGER.warning("human_id collision on %s, retrying (%d/%d)", human_id, attempt + 1, max_attempts)
-    assert app is not None
+        apply_stage(new_app, ApplicationStage.INTERESTED)
+        return new_app
+
+    try:
+        app = insert_application_with_human_id(session, _build)
+    except IntegrityError:
+        raise SlackActionError("Could not allocate a unique application ID after several attempts.")
+    human_id = app.human_id
     _persist_jd_snapshot(session, app, job)
 
     # Source channel/thread from the interaction payload

@@ -6,13 +6,12 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from agentic_jobs.core.enums import ApplicationStage, ArtifactType
 from agentic_jobs.db import models
 from agentic_jobs.db.session import get_session
-from agentic_jobs.services.applications.human_id import next_human_id
+from agentic_jobs.services.applications.human_id import insert_application_with_human_id
 from agentic_jobs.services.applications.stage import apply_stage
 from agentic_jobs.services.artifacts.utils import ARTIFACTS_DIR
 from agentic_jobs.services.ranking import score_job
@@ -83,23 +82,19 @@ async def create_application(
         )
 
     score_result = score_job(job)
-    app = models.Application(
-        human_id=next_human_id(db),
-        job_id=job.id,
-        score=score_result.score,
-        canonical_job_id=job.job_id_canonical,
-        submission_mode=job.submission_mode,
-    )
-    apply_stage(app, ApplicationStage.INTERESTED)
-    db.add(app)
-    try:
-        db.flush()
-    except IntegrityError:
-        db.rollback()
-        # Two concurrent creates raced on human_id — recompute and retry once.
-        app.human_id = next_human_id(db)
-        db.add(app)
-        db.flush()
+
+    def _build(human_id: str) -> models.Application:
+        new_app = models.Application(
+            human_id=human_id,
+            job_id=job.id,
+            score=score_result.score,
+            canonical_job_id=job.job_id_canonical,
+            submission_mode=job.submission_mode,
+        )
+        apply_stage(new_app, ApplicationStage.INTERESTED)
+        return new_app
+
+    app = insert_application_with_human_id(db, _build)
     _persist_jd_snapshot(db, app, job)
     db.commit()
     db.refresh(app)
