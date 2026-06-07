@@ -151,6 +151,26 @@ METRO_AREAS: dict[str, str] = {
 # states where tech jobs cluster in a single region).
 _SMALL_STATES = {"de", "ri", "vt", "nh", "me", "ct", "hi", "ak"}
 
+# Full state/territory names → USPS abbreviation, so locations that spell the
+# state out ("Stamford, Connecticut") resolve the same as abbreviated ones
+# ("Stamford, CT").
+_STATE_NAMES: dict[str, str] = {
+    "alabama": "al", "alaska": "ak", "arizona": "az", "arkansas": "ar",
+    "california": "ca", "colorado": "co", "connecticut": "ct", "delaware": "de",
+    "florida": "fl", "georgia": "ga", "hawaii": "hi", "idaho": "id",
+    "illinois": "il", "indiana": "in", "iowa": "ia", "kansas": "ks",
+    "kentucky": "ky", "louisiana": "la", "maine": "me", "maryland": "md",
+    "massachusetts": "ma", "michigan": "mi", "minnesota": "mn", "mississippi": "ms",
+    "missouri": "mo", "montana": "mt", "nebraska": "ne", "nevada": "nv",
+    "new hampshire": "nh", "new jersey": "nj", "new mexico": "nm", "new york": "ny",
+    "north carolina": "nc", "north dakota": "nd", "ohio": "oh", "oklahoma": "ok",
+    "oregon": "or", "pennsylvania": "pa", "rhode island": "ri",
+    "south carolina": "sc", "south dakota": "sd", "tennessee": "tn", "texas": "tx",
+    "utah": "ut", "vermont": "vt", "virginia": "va", "washington": "wa",
+    "west virginia": "wv", "wisconsin": "wi", "wyoming": "wy",
+    "district of columbia": "dc",
+}
+
 
 def _normalise(text: str) -> str:
     """Lowercase, strip punctuation and filler words."""
@@ -171,9 +191,20 @@ def _extract_city(location: str) -> str:
 
 
 def _extract_state(location: str) -> str:
-    """Extract the state/region abbreviation if present."""
+    """Extract the state/region as a lowercase USPS abbreviation if present.
+
+    Prefers an explicit two-letter abbreviation ("Stamford, CT"); falls back to
+    a spelled-out state name ("Stamford, Connecticut"). Abbreviation first so
+    "Washington, DC" resolves to ``dc`` rather than Washington state.
+    """
     match = re.search(r"\b([A-Z]{2})\b", location)
-    return match.group(1).lower() if match else ""
+    if match:
+        return match.group(1).lower()
+    lowered = location.lower()
+    for name, abbr in _STATE_NAMES.items():
+        if re.search(rf"\b{re.escape(name)}\b", lowered):
+            return abbr
+    return ""
 
 
 def same_metro(loc1: str, loc2: str) -> bool:

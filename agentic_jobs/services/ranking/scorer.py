@@ -17,7 +17,11 @@ def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
 
 
 def score_job(job: models.Job, filter_config: JobFilterConfig | None = None) -> ScoreResult:
-    """Deterministic placeholder scorer until MVPart 4 lands."""
+    """Deterministic keyword-based fit score in [0, 1] for a discovered job.
+
+    Combines title, new-grad phrasing, geo, and remote/hybrid signals from the
+    job filter config into a single score with a human-readable rationale.
+    """
     if filter_config is None:
         from agentic_jobs.config import settings
         filter_config = get_job_filter_config(settings.job_filter_config_path)
