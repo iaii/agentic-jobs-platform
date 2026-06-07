@@ -122,7 +122,9 @@ class ProfileLoader:
                 "education": identity.facts.education,
                 "work_auth": identity.facts.work_auth,
             }
-        files = self._build_files_from_db(identity.files)
+        files = self._build_files_from_db(
+            identity.files, self.settings.autofill_cl_pdf_enabled
+        )
         return AutofillProfile(
             identity=snapshot,
             links=links,
@@ -164,7 +166,9 @@ class ProfileLoader:
         )
 
     @staticmethod
-    def _build_files_from_db(file_entry: models.ProfileFiles | None) -> ProfileFilesSnapshot:
+    def _build_files_from_db(
+        file_entry: models.ProfileFiles | None, cover_letter_pdf_enabled: bool
+    ) -> ProfileFilesSnapshot:
         resume_variants: Dict[str, Path] = {}
         default_tag: str | None = None
         cover_letter_path: Path | None = None
@@ -181,7 +185,7 @@ class ProfileLoader:
         return ProfileFilesSnapshot(
             resume_variants=resume_variants,
             default_resume_tag=default_tag,
-            cover_letter_pdf_enabled=True,
+            cover_letter_pdf_enabled=cover_letter_pdf_enabled,
             cover_letter_pdf_path=cover_letter_path,
             resume_text_path=resume_text_path,
         )
