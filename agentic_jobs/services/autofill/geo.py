@@ -82,7 +82,7 @@ METRO_AREAS: dict[str, str] = {
     "cambridge": "boston",
     "somerville": "boston",
     "waltham": "boston",
-    "Burlington": "boston",
+    "burlington": "boston",
     # Chicago
     "chicago": "chicago",
     "evanston": "chicago",
