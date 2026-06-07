@@ -75,8 +75,13 @@ _BLOCKED_PATH_SEGMENTS: frozenset[str] = frozenset([
     "checkout", "cart", "payment", "billing",
     "admin", "dashboard", "api", "graphql",
     "download", "uploads", "static", "assets",
-    "cdn", ".pdf", ".zip", ".exe", ".dmg",
+    "cdn",
 ])
+
+# Never scrape files with these extensions — they are binaries/downloads, not
+# readable pages. Matched against the end of the path (the segment tokenizer
+# below splits on "/", "-", "_" but not ".", so these need a separate check).
+_BLOCKED_EXTENSIONS: tuple[str, ...] = (".pdf", ".zip", ".exe", ".dmg")
 
 
 def is_safe_url(url: str) -> bool:
@@ -102,6 +107,10 @@ def is_safe_url(url: str) -> bool:
 
     # Hard block list
     if any(netloc == blocked or netloc.endswith("." + blocked) for blocked in _BLOCKED_DOMAINS):
+        return False
+
+    # Block downloadable binaries by file extension
+    if path.endswith(_BLOCKED_EXTENSIONS):
         return False
 
     # Block dangerous path segments
