@@ -162,10 +162,13 @@ async def _ingest_job(
     company_name = job_detail.company_name or _slug_to_company(job_ref.org_slug)
     jd_text = html_to_text(job_detail.html)
     requirements = extract_requirements(job_detail.html)
+    # Job.location is NOT NULL and downstream scoring calls .lower() on it, so
+    # coerce missing/blank values from an adapter to a safe placeholder.
+    location = (job_ref.location or "").strip() or "Unknown"
     hash_payload = "\n".join(
         [
             jd_text,
-            job_ref.location or "",
+            location,
             job_ref.detail_url or "",
             job_ref.job_id or "",
         ]
@@ -211,7 +214,7 @@ async def _ingest_job(
     job = models.Job(
         title=job_ref.title,
         company_name=company_name,
-        location=job_ref.location,
+        location=location,
         url=job_ref.detail_url,
         source_type=source_type,
         source_name=source_label,
