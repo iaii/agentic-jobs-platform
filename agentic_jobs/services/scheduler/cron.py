@@ -20,7 +20,6 @@ from agentic_jobs.services.slack.digest import build_digest_blocks, build_needs_
 from agentic_jobs.services.slack.workflows import (
     collect_digest_rows,
     collect_needs_review_candidates,
-    last_posted_job_scraped_at,
     record_digest_post,
 )
 
@@ -124,11 +123,16 @@ async def _run_discovery_cycle(run_started: datetime) -> None:
 
 async def _post_digest_and_reviews(session, run_started: datetime) -> None:
     digest_day = datetime.now(tz=PT_ZONE).date()
-    last_posted_at = last_posted_job_scraped_at(session)
+    # Reconsider every unposted job within the freshness window each cycle.
+    # `collect_digest_rows` dedups against the digest log, so already-posted jobs
+    # are excluded; `since` only bounds how far back we look. Using the previous
+    # "last posted scraped_at" watermark here permanently dropped unposted
+    # lower-scored jobs once a batch exceeded DIGEST_BATCH_SIZE.
+    recency_floor = datetime.now(tz=timezone.utc) - timedelta(days=settings.job_cutoff_days)
 
     digest_rows = collect_digest_rows(
         session,
-        since=last_posted_at,
+        since=recency_floor,
         digest_day=digest_day,
         limit=settings.digest_batch_size,
     )

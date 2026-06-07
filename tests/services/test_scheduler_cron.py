@@ -17,6 +17,7 @@ def _make_settings(**overrides):
         "slack_bot_token": "xoxb-test",
         "slack_jobs_feed_channel": "C123",
         "digest_batch_size": 10,
+        "job_cutoff_days": 30,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

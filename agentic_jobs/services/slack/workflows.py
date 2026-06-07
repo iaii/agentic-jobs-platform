@@ -21,13 +21,19 @@ def collect_digest_rows(
     digest_day: date,
     limit: int,
 ) -> list[DigestRow]:
+    # A job is "already posted" if it appears in the digest log at all — not just
+    # for today. Relying on the per-day log plus a scraped_at watermark used to
+    # permanently drop unposted lower-scored jobs once a higher-scored job with a
+    # later scraped_at was posted. Deduping against the full log keeps every
+    # unposted job eligible until it is actually delivered.
     posted_job_ids = {
         row
         for row in session.execute(
-            select(models.DigestLog.job_id).where(models.DigestLog.digest_date == digest_day)
+            select(models.DigestLog.job_id)
         ).scalars()
     }
 
+    # `since` is a recency floor (skip stale jobs), not a "posted" watermark.
     stmt = select(models.Job).order_by(models.Job.scraped_at.desc())
     if since is not None:
         stmt = stmt.where(models.Job.scraped_at > since)
