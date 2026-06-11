@@ -19,6 +19,7 @@ A fully autonomous job-application pipeline — built on FastAPI, PostgreSQL, an
 9. [Scheduler & cron](#scheduler--cron)
 10. [Configuration reference](#configuration-reference)
 11. [Setup & quick-start](#setup--quick-start)
+12. [Roadmap & active design work](#roadmap--active-design-work)
 
 ---
 
@@ -815,3 +816,29 @@ See `SLACK_SETUP.md` for the full App Manifest, OAuth scopes, Socket Mode setup,
 - Set `ENABLE_GREENHOUSE=false` and `GITHUB_MAX_AGE_DAYS=7` for local dev without Greenhouse access.
 - The autofill browser extension lives under `autofill_extension/` — load as an unpacked extension from `chrome://extensions` and configure the local API URL + token from the extension options page.
 - `config/fake_profile.yaml` is the fallback autofill profile when no `ProfileIdentity` rows exist in the database.
+
+---
+
+## Roadmap & active design work
+
+The full design discussion lives in
+[`docs/design/langgraph-orchestration-and-eval-design.md`](docs/design/langgraph-orchestration-and-eval-design.md).
+It covers a holistic redesign of the cover-letter pipeline — retrieval, framing,
+review, orchestration, and evaluation — and tracks status per area:
+
+| Area | What it solves | Status |
+|---|---|---|
+| **LangGraph orchestration** | Replaces the hand-rolled write/review/revise loop with a `StateGraph` (`services/agents/graph/`) so the new HM↔upstream branch (below) and future tool-calling can use conditional edges instead of nested loop flags | **Done** — see branch [`feat/langgraph-orchestration`](../../tree/feat/langgraph-orchestration) |
+| **Eval harness (Tier 1 & 2)** | Self-consistency variance check (`evals/run_self_consistency.py`) and pairwise A/B comparison (`evals/run_pairwise.py`), per the doc's 3-tier eval proposal | **Done (scaffolding)** — same branch; golden datasets and Tier 3 calibration log are still TODO |
+| **Retrieval — multi-query / HyDE** | LLM-generated paraphrases + "hypothetical note" passages to close the JD-vocabulary vs. notes-vocabulary gap in vault search | Planned |
+| **Retrieval — hybrid BM25 + graph re-rank** | Combine lexical (`rank-bm25`) and semantic scores; multi-hop wikilink graph traversal | Planned |
+| **Skill Mapper** | New step that maps each JD requirement to a kit/vault bullet, restates it in "core SWE" framing (`underlying_skill` / `framing_angle`), and flags `coverage: none` gaps | Planned |
+| **Writer — framing guardrail + bounded tool-calling** | Explicit "vocabulary swap OK, new facts not OK" rule; optional `search_vault` tool (0-2 calls) as a LangGraph subgraph | Planned |
+| **Hiring Manager redesign — fit + quality** | Splits the HM rubric into a per-requirement *fit* dimension (`addressed/strength/suggestion`) and a refined 5-dimension *quality* rubric, with two pass thresholds and a `genuine_gaps` signal | Planned |
+| **Fabrication check** | Deterministic regex/lexical diff flagging numbers/terms in a draft not present in source material, fed to the HM as `flagged_terms` | Planned |
+
+**Currently in progress:** the LangGraph migration and eval harness above are
+implemented on [`feat/langgraph-orchestration`](../../tree/feat/langgraph-orchestration)
+and pending review/merge. Next up (per the user's plan) is iterating on
+question-and-answer pairs / golden datasets to support the eval harness, then
+the Skill Mapper and Hiring Manager redesign described in the design doc.
