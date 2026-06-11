@@ -17,8 +17,8 @@ from agentic_jobs.core.enums import (
     PipelineStatus,
 )
 from agentic_jobs.db import models
-from agentic_jobs.services.agents.researcher import ResearcherAgent
-from agentic_jobs.services.agents.reviewer import HiringManagerAgent
+from agentic_jobs.services.agents.graph.pipeline_graph import PIPELINE_GRAPH
+from agentic_jobs.services.agents.graph.state import PipelineState
 from agentic_jobs.services.agents.schemas import (
     CoverLetterDraft,
     PipelineResult,
@@ -167,68 +167,48 @@ class PipelineCoordinator:
             vault_matches = await self._search_vault(job.jd_text)
             memory_notes = self._load_memory_notes()
 
-            agent_log.append({
-                "phase": "data_gathering",
-                "scraped_pages": len(scraped_pages),
-                "vault_matches": len(vault_matches),
-                "memory_notes": len(memory_notes),
-            })
+            from agentic_jobs.services.agents.guardrails import sanitize
+            clean_notes = [sanitize(n, source="slack:user_note") for n in (notes or []) if n]
+
+            await self._post_progress(application, post_to_slack, "_Research complete. Writing draft..._")
 
             # ----------------------------------------------------------------
-            # Phase 2: Research synthesis
+            # Phases 2-3: Research synthesis + Write/Review loop (LangGraph)
             # ----------------------------------------------------------------
-            researcher = ResearcherAgent()
-            t0 = time.monotonic()
-            research_brief: ResearchBrief = await researcher.run(
-                jd_text=job.jd_text,
-                company_name=job.company_name,
-                scraped_pages=scraped_pages,
-                vault_matches=vault_matches,
-                profile=profile,
-                kit=kit,
-                memory_notes=memory_notes,
-            )
-            # Fill coordinator-owned fields
-            research_brief.company_domain = company_domain or ""
-            research_brief.company_name = research_brief.company_name or job.company_name
-            research_brief.vault_excerpts = [m.text for m in vault_matches[:4]]
+            initial_state: PipelineState = {
+                "application_id": application_id,
+                "job_id": job.id,
+                "company_name": job.company_name,
+                "company_domain": company_domain,
+                "jd_text": job.jd_text,
+                "role_title": job.title,
+                "profile": profile,
+                "kit": kit,
+                "word_budget": word_budget,
+                "pass_threshold": settings.pipeline_pass_threshold,
+                "max_revisions": settings.pipeline_max_revisions,
+                "notes": notes or [],
+                "clean_notes": clean_notes,
+                "author": author,
+                "post_to_slack": post_to_slack,
+                "scraped_pages": scraped_pages,
+                "vault_matches": vault_matches,
+                "memory_notes": memory_notes,
+                "research_brief": None,
+                "ordered_keys": [],
+                "draft": None,
+                "review_history": [],
+                "revision_round": 0,
+                "agent_log": agent_log,
+                "started_at": started_at,
+            }
 
-            # Resolve researcher's experience keys to verified bullets.
-            # The researcher returns keys (e.g. "jci_rag_eval"); we look up the actual
-            # ExperienceHighlight from the kit so writers never see free-form LLM text.
-            valid_keys = {e.key for e in kit.experience}
-            primary_key = research_brief.primary_experience_key
-            if primary_key and primary_key not in valid_keys:
-                LOGGER.warning(
-                    "[coordinator] Researcher returned unknown primary key %r; falling back to first experience",
-                    primary_key,
-                )
-                primary_key = kit.experience[0].key if kit.experience else ""
-                research_brief.primary_experience_key = primary_key
+            final_state: PipelineState = await PIPELINE_GRAPH.ainvoke(initial_state)
 
-            matched_keys = [k for k in research_brief.matched_experience_keys if k in valid_keys]
-            research_brief.matched_experience_keys = matched_keys
-
-            # Build ordered de-duplicated key list: primary first, then additional matches
-            ordered_keys: list[str] = []
-            for k in ([primary_key] if primary_key else []) + matched_keys:
-                if k not in ordered_keys:
-                    ordered_keys.append(k)
-
-            primary_exp = next((e for e in kit.experience if e.key == primary_key), None)
-            research_brief.primary_experience = primary_exp.title if primary_exp else ""
-
-            matched_exps = [e for e in kit.experience if e.key in matched_keys]
-            research_brief.matched_experiences = [
-                f"{e.title}: {'; '.join(e.bullets[:2])}" for e in matched_exps
-            ]
-
-            agent_log.append({
-                "phase": "researcher",
-                "duration_ms": int((time.monotonic() - t0) * 1000),
-                "themes": research_brief.role_themes,
-                "suggested_project": research_brief.suggested_project,
-            })
+            research_brief: ResearchBrief = final_state["research_brief"]
+            draft: CoverLetterDraft | None = final_state["draft"]
+            review_history: list[ReviewVerdict] = final_state["review_history"]
+            agent_log = final_state["agent_log"]
 
             # Write intelligence notes to Obsidian — candidate reference only, not used by writer
             if research_brief.company_intelligence and company_domain:
@@ -239,86 +219,6 @@ class PipelineCoordinator:
                 except Exception as exc:
                     LOGGER.warning("[coordinator] Failed to write company intelligence to vault: %s", exc)
                     agent_log.append({"phase": "vault_write", "error": str(exc)})
-
-            await self._post_progress(application, post_to_slack, "_Research complete. Writing draft..._")
-
-            # ----------------------------------------------------------------
-            # Phase 3: Write + Review loop
-            # ----------------------------------------------------------------
-            writer = WriterAgent()
-            reviewer = HiringManagerAgent()
-            draft: CoverLetterDraft | None = None
-            review_history: list[ReviewVerdict] = []
-            from agentic_jobs.services.agents.guardrails import sanitize
-            clean_notes = [sanitize(n, source="slack:user_note") for n in (notes or []) if n]
-            pass_threshold = settings.pipeline_pass_threshold
-            max_revisions = settings.pipeline_max_revisions
-
-            for revision_round in range(max_revisions + 1):
-                is_revision = revision_round > 0
-                t0 = time.monotonic()
-
-                draft = await writer.run(
-                    research_brief=research_brief,
-                    profile=profile,
-                    kit=kit,
-                    full_name=profile.full_name,
-                    word_budget=word_budget,
-                    matched_experience_keys=ordered_keys,
-                    is_revision=is_revision,
-                    previous_draft=draft if is_revision else None,
-                    reviewer_feedback=review_history[-1] if is_revision else None,
-                    user_notes=clean_notes,
-                )
-                draft.version = revision_round + 1
-
-                agent_log.append({
-                    "phase": f"writer_round_{draft.version}",
-                    "duration_ms": int((time.monotonic() - t0) * 1000),
-                    "word_count": draft.word_count,
-                })
-
-                await self._post_progress(
-                    application, post_to_slack,
-                    f"_Draft v{draft.version} written ({draft.word_count} words). Reviewing..._"
-                )
-
-                # Review
-                t0 = time.monotonic()
-                verdict: ReviewVerdict = await reviewer.run(
-                    draft=draft,
-                    research_brief=research_brief,
-                    jd_text=job.jd_text,
-                    kit=kit,
-                    role_title=job.title,
-                    company_name=job.company_name,
-                    round_number=revision_round + 1,
-                    pass_threshold=pass_threshold,
-                )
-                review_history.append(verdict)
-
-                agent_log.append({
-                    "phase": f"reviewer_round_{draft.version}",
-                    "duration_ms": int((time.monotonic() - t0) * 1000),
-                    "score": verdict.score,
-                    "verdict": verdict.verdict,
-                })
-
-                # Always do at least 2 revisions (3 total writer calls).
-                # Rounds 0 and 1 always revise regardless of score.
-                if revision_round > 1 and (verdict.verdict == "pass" or verdict.score >= pass_threshold):
-                    LOGGER.info("[coordinator] Draft passed review: score=%.1f", verdict.score)
-                    break
-
-                if revision_round < max_revisions:
-                    await self._post_progress(
-                        application, post_to_slack,
-                        f"_Score: {verdict.score}/10. Revising (round {revision_round + 2}/{max_revisions + 1})..._"
-                    )
-                else:
-                    LOGGER.info(
-                        "[coordinator] Max revisions reached. Accepting best draft (score=%.1f)", verdict.score
-                    )
 
             assert draft is not None
 

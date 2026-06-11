@@ -390,7 +390,14 @@ donts: […]
 
 ### Multi-agent pipeline (`Generate CL`)
 
-`services/agents/coordinator.py` orchestrates four specialised agents:
+`services/agents/coordinator.py` orchestrates four specialised agents. The
+research → write → review/revise loop (Phases 2-3 below) is implemented as a
+LangGraph `StateGraph` (`services/agents/graph/`); the coordinator builds the
+shared `PipelineState`, invokes the compiled graph, and handles persistence
+and Slack notification (Phases 4-5) from the final state. See
+[`docs/design/langgraph-orchestration-and-eval-design.md`](docs/design/langgraph-orchestration-and-eval-design.md)
+for the design rationale, and [`evals/`](evals/) for the self-consistency
+(Tier 1) and pairwise (Tier 2) eval harness.
 
 ```
 Phase 1 — Data gathering (parallel)
