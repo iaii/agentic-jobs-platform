@@ -15,7 +15,7 @@ build/
 venv/
 
 # Personal data — never commit real PII, resumes, or application artifacts
-artifacts/
+/artifacts/
 config/profile.yaml
 
 # Generated / runtime
